@@ -22,7 +22,7 @@
 </p>
 
 <p align="center">
-  <img src="docs/images/splash.png" alt="Splash Eureka42 Universal CLI" width="560">
+  <img src="docs/images/splash.jpg" alt="Splash Eureka42 Universal CLI" width="560">
 </p>
 
 ---
