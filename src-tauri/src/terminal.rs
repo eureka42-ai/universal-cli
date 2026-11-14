@@ -340,13 +340,22 @@ mod tests {
         let mut child = pair.slave.spawn_command(command).unwrap();
         drop(pair.slave);
         let mut reader = pair.master.try_clone_reader().unwrap();
+        let mut writer = pair.master.take_writer().unwrap();
         let (sender, receiver) = std::sync::mpsc::channel();
         std::thread::spawn(move || {
             let mut output = Vec::new();
             let mut buffer = [0u8; 1024];
+            let mut answered_cursor_query = false;
             while let Ok(length) = reader.read(&mut buffer) {
                 if length == 0 { break; }
                 output.extend_from_slice(&buffer[..length]);
+                // portable-pty enables PSEUDOCONSOLE_INHERIT_CURSOR. A real
+                // terminal (xterm.js) replies to this startup cursor query.
+                if !answered_cursor_query && output.windows(4).any(|bytes| bytes == b"\x1b[6n") {
+                    writer.write_all(b"\x1b[1;1R").unwrap();
+                    writer.flush().unwrap();
+                    answered_cursor_query = true;
+                }
                 if String::from_utf8_lossy(&output).contains("CONPTY_OK") { break; }
             }
             let _ = sender.send(String::from_utf8_lossy(&output).into_owned());
