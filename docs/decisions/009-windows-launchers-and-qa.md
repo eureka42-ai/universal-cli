@@ -24,3 +24,10 @@ Gemini was detected but CreateProcessW rejected the extensionless npm POSIX shim
 - Added Windows batch resolution/version/custom-agent regressions, SQLite failed-attempt persistence, ConPTY smoke test, and Checks CI on Windows, macOS and Linux. Native results and updated-app user QA remain pending until executed.
 
 The existing installed executable has not been replaced by these source changes. Authenticated cloud sync, provider model responses and the real Antigravity CLI are not yet claimed as tested.
+
+## Follow-up: intensive checks
+
+- Frontend now has **20 passing tests** and a passing production build. History defaults to a readable terminal preview with ANSI controls removed, raw events under technical details, copy, filter reset and pagination for sessions over 200 events. It does not claim to reconstruct semantic provider messages.
+- Checks for commit `49b2006` passed on macOS and Linux. Windows compiled successfully: **36 native tests passed and the ConPTY smoke test timed out** because the test waited for EOF while retaining the master. The production lifecycle now observes child exit independently, drops the master and drains output before emitting exit. The smoke test waits for an output marker and bounded child exit instead. Updated native checks remain pending.
+- The installed Windows application was opened again. Claude Code 2.1.318 launched through its picker and showed its initial appearance setup. Model response and authentication are not inferred from startup. The original installed executable still uses the old code.
+- `agy` was the exact command reported by the user. The documented standalone Windows location and the usual local/npm launcher locations did not contain it during this check. The installed Antigravity desktop apps alone do not establish a CLI installation; additional discovery checks are continuing.

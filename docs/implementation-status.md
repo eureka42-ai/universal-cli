@@ -186,3 +186,7 @@ A primeira versão funcional para macOS está concluída, incluindo os três req
 4. **Site**: apontar para eureka42.org (feito nos arquivos; o domínio precisa existir/apontar).
 5. **Repositório**: decidir renomear `github.com/raulgreco/hostdrive` para a marca (afeta o endpoint do auto-update; o updater publica em rascunho, então a troca é segura antes da primeira release pública).
 6. Publicar release v0.2.0 (tag) quando os itens 1–3 tiverem evidência — o CI gera macOS + Windows automaticamente.
+
+### 2026-11-14 — follow-up QA
+
+History reading, copy and event pagination implemented; **20 frontend tests and production build pass**. CI at `49b2006`: macOS/Linux passed; Windows compiled and passed 36 native tests, with one ConPTY EOF smoke timeout. Corrective lifecycle and bounded-marker test added; rerun pending. Installed-app Claude startup observed, full conversation still NOT_VERIFIED.

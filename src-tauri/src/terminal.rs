@@ -1,7 +1,7 @@
 use crate::agents::{find_agent_executable, resume_args};
 use crate::context;
 use crate::projects::ProjectRepository;
-use portable_pty::{native_pty_system, Child, CommandBuilder, MasterPty, PtySize};
+use portable_pty::{native_pty_system, Child, MasterPty, PtySize};
 use serde::Serialize;
 use std::{
     collections::HashMap,
@@ -150,49 +150,53 @@ pub fn launch_terminal(
             },
         );
 
+    let reader_app = app.clone();
+    let reader_repository = output_repository.clone();
+    let reader_session_id = output_session_id.clone();
+    let (drained_sender, drained_receiver) = std::sync::mpsc::channel();
     thread::spawn(move || {
         let mut buffer = [0_u8; 8192];
         loop {
             match reader.read(&mut buffer) {
                 Ok(0) | Err(_) => break,
                 Ok(length) => {
-                    if output_repository
-                        .should_capture_terminal_events()
-                        .unwrap_or(false)
-                    {
-                        let _ = output_repository.record_terminal_event(
-                            &output_session_id,
-                            "OUTPUT",
-                            &buffer[..length],
-                        );
+                    if reader_repository.should_capture_terminal_events().unwrap_or(false) {
+                        let _ = reader_repository.record_terminal_event(&reader_session_id, "OUTPUT", &buffer[..length]);
                     }
-                    let _ = app.emit(
-                        "terminal-output",
-                        TerminalOutput {
-                            session_id: output_session_id.clone(),
-                            data: buffer[..length].to_vec(),
-                        },
-                    );
+                    let _ = reader_app.emit("terminal-output", TerminalOutput {
+                        session_id: reader_session_id.clone(), data: buffer[..length].to_vec(),
+                    });
                 }
             }
         }
-        let status = {
+        let _ = drained_sender.send(());
+    });
+
+    // On ConPTY, EOF can depend on dropping the master. Observe process exit
+    // independently so a finished child cannot keep its own terminal alive.
+    thread::spawn(move || {
+        let status = loop {
             let manager = app.state::<TerminalManager>();
-            let session = manager.sessions.lock().ok().and_then(|mut sessions| sessions.remove(&output_session_id));
-            match session {
-                Some(mut session) => match session.child.wait() { Ok(status) if status.success() => "EXITED", _ => "FAILED" },
-                None => "EXITED", // An explicit close already recorded TERMINATED.
+            let mut sessions = match manager.sessions.lock() { Ok(sessions) => sessions, Err(_) => break "FAILED" };
+            match sessions.get_mut(&output_session_id).map(|session| session.child.try_wait()) {
+                None => break "EXITED", // Explicit close already recorded TERMINATED.
+                Some(Ok(Some(exit))) => {
+                    sessions.remove(&output_session_id);
+                    break if exit.success() { "EXITED" } else { "FAILED" };
+                }
+                Some(Err(_)) => {
+                    if let Some(mut session) = sessions.remove(&output_session_id) { let _ = session.child.kill(); }
+                    break "FAILED";
+                }
+                Some(Ok(None)) => {}
             }
+            drop(sessions);
+            thread::sleep(std::time::Duration::from_millis(100));
         };
         let _ = output_repository.mark_session_ended(&output_session_id, status);
-        // Fim de conversa: publica o contexto atualizado para a próxima.
+        let _ = drained_receiver.recv_timeout(std::time::Duration::from_secs(5));
         let _ = context::write_context_file(&output_repository, &output_project_id);
-        let _ = app.emit(
-            "terminal-exited",
-            TerminalExited {
-                session_id: output_session_id,
-            },
-        );
+        let _ = app.emit("terminal-exited", TerminalExited { session_id: output_session_id });
     });
 
     Ok(TerminalStarted {
@@ -309,6 +313,7 @@ fn checked_size(cols: Option<u16>, rows: Option<u16>) -> Result<PtySize, String>
 #[cfg(test)]
 mod tests {
     use super::*;
+    use portable_pty::CommandBuilder;
 
     #[test]
     fn validates_terminal_dimensions() {
@@ -336,11 +341,27 @@ mod tests {
         drop(pair.slave);
         let mut reader = pair.master.try_clone_reader().unwrap();
         let (sender, receiver) = std::sync::mpsc::channel();
-        std::thread::spawn(move || { let mut output = String::new(); let _ = reader.read_to_string(&mut output); let _ = sender.send(output); });
+        std::thread::spawn(move || {
+            let mut output = Vec::new();
+            let mut buffer = [0u8; 1024];
+            while let Ok(length) = reader.read(&mut buffer) {
+                if length == 0 { break; }
+                output.extend_from_slice(&buffer[..length]);
+                if String::from_utf8_lossy(&output).contains("CONPTY_OK") { break; }
+            }
+            let _ = sender.send(String::from_utf8_lossy(&output).into_owned());
+        });
         let output = receiver.recv_timeout(std::time::Duration::from_secs(15));
         if output.is_err() { let _ = child.kill(); }
         assert!(output.unwrap().contains("CONPTY_OK"));
-        assert!(child.wait().unwrap().success());
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+        let status = loop {
+            if let Some(status) = child.try_wait().unwrap() { break status; }
+            if std::time::Instant::now() > deadline { let _ = child.kill(); panic!("process did not exit after printing the marker"); }
+            std::thread::sleep(std::time::Duration::from_millis(25));
+        };
+        assert!(status.success());
+        drop(pair.master);
     }
 
     #[cfg(unix)]

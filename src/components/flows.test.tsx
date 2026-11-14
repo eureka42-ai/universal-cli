@@ -11,14 +11,14 @@ import type { Agent } from "../data/workspace";
 const mock = vi.hoisted(() => ({
   git: vi.fn(), prepare: vi.fn(), read: vi.fn(), open: vi.fn(), copy: vi.fn(),
   launch: vi.fn(), close: vi.fn(), listen: vi.fn(), add: vi.fn(), detect: vi.fn(),
-  write: vi.fn(), sessions: vi.fn(), tasks: vi.fn(), addTask: vi.fn(), toggle: vi.fn(),
+  write: vi.fn(), sessions: vi.fn(), events: vi.fn(), export: vi.fn(), tasks: vi.fn(), addTask: vi.fn(), toggle: vi.fn(),
   output: undefined as undefined | ((event: { sessionId: string; data: number[] }) => void),
   exit: undefined as undefined | ((event: { sessionId: string }) => void)
 }));
 vi.mock("../services/workspace", () => ({ getGitStatus: mock.git, listProjectTasks: mock.tasks, addProjectTask: mock.addTask, setProjectTaskCompleted: mock.toggle }));
 vi.mock("../services/handoff", () => ({ prepareHandoff: mock.prepare, readHandoffContext: mock.read, openHandoffFolder: mock.open }));
 vi.mock("../services/agents", () => ({ addCustomAgent: mock.add, detectInstalledAgents: mock.detect }));
-vi.mock("../services/history", () => ({ listTerminalSessions: mock.sessions, getTerminalSessionEvents: vi.fn(), exportTerminalSession: vi.fn() }));
+vi.mock("../services/history", () => ({ listTerminalSessions: mock.sessions, getTerminalSessionEvents: mock.events, exportTerminalSession: mock.export }));
 vi.mock("../services/terminal", () => ({ isTauriRuntime: () => true, launchTerminal: mock.launch, closeTerminal: mock.close, sendTerminalInput: vi.fn(), resizeTerminal: vi.fn(), listenToTerminal: mock.listen }));
 vi.mock("@xterm/xterm", () => ({ Terminal: class {
   cols = 80; rows = 24; loadAddon() {} open() {} writeln() {} reset() {} focus() {} dispose() {}
@@ -37,7 +37,7 @@ beforeEach(() => {
   mock.listen.mockImplementation(async (output, exit) => { mock.output = output; mock.exit = exit; return () => {}; });
   mock.prepare.mockResolvedValue({ id: "package-1", status: "READY", packagePath: "C:/pacotes/1", targetAgent: "gemini", warnings: [] });
   mock.read.mockResolvedValue("Contexto de teste CAFE-42"); mock.open.mockResolvedValue(undefined);
-  mock.sessions.mockResolvedValue([]); mock.tasks.mockResolvedValue([]);
+  mock.sessions.mockResolvedValue([]); mock.events.mockResolvedValue([]); mock.tasks.mockResolvedValue([]);
 });
 afterEach(() => { cleanup(); vi.unstubAllGlobals(); });
 
@@ -125,6 +125,20 @@ it("Histórico permite filtrar Gemini e falhas de inicialização", async () => 
   fireEvent.change(screen.getByRole("combobox", { name: "Agente" }), { target: { value: "gemini" } });
   fireEvent.change(screen.getByRole("combobox", { name: "Estado" }), { target: { value: "FAILED" } });
   await waitFor(() => expect(mock.sessions).toHaveBeenLastCalledWith("p1", expect.objectContaining({ agentId: "gemini", status: "FAILED" })));
+});
+it("Histórico abre leitura simples, mantém detalhes técnicos recolhidos e carrega o restante", async () => {
+  mock.sessions.mockResolvedValueOnce([{ id: "history-1", projectId: "p1", agentId: "gemini", workingDirectory: "C:/projeto", status: "EXITED", startedAt: 1, endedAt: 2, eventCount: 201, capturedBytes: 1200 }]);
+  mock.events.mockResolvedValueOnce(Array.from({ length: 200 }, (_, id) => ({ id, direction: "OUTPUT", text: id === 0 ? "\x1b[32mCAFE-42\x1b[0m" : "", createdAt: 1 })))
+    .mockResolvedValueOnce([{ id: 201, direction: "OUTPUT", text: " fim do registro", createdAt: 2 }]);
+  render(<HistoryPane active projectId="p1" agents={agents} />);
+  fireEvent.click(await screen.findByRole("button", { name: /Gemini/ }));
+  await waitFor(() => expect(screen.getByLabelText("Registro de terminal").textContent).toBe("CAFE-42"));
+  expect(document.querySelector("details")?.open).toBe(false);
+  fireEvent.click(screen.getByRole("button", { name: "Carregar mais registros" }));
+  await waitFor(() => expect(mock.events).toHaveBeenLastCalledWith("history-1", 200, 200));
+  await waitFor(() => expect(screen.getByLabelText("Registro de terminal").textContent).toContain("fim do registro"));
+  fireEvent.click(screen.getByRole("button", { name: "Copiar registro" }));
+  await waitFor(() => expect(mock.copy).toHaveBeenCalledWith("CAFE-42 fim do registro"));
 });
 it("Tarefas usa proveniência legível e permite concluir um item", async () => {
   mock.tasks.mockResolvedValueOnce([{ id: "t1", title: "Verificar continuidade", completed: false, provenance: "USER_CONFIRMED", createdAt: 1, updatedAt: 1 }]); mock.toggle.mockResolvedValueOnce(undefined);
