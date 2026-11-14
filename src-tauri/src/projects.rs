@@ -1191,27 +1191,23 @@ mod tests {
 
         const SESSIONS: usize = 400;
         const EVENTS_PER_SESSION: usize = 12;
+        // This test measures search, not thousands of synchronous disk commits.
+        // Exercise event writes through the repository in the persistence tests;
+        // prepare this identical 400-session/4800-event workload atomically.
+        let mut connection = repository.open().unwrap();
+        let transaction = connection.transaction().unwrap();
         for session_index in 0..SESSIONS {
             let session_id = format!("bench-session-{session_index}");
-            repository
-                .record_session_started(
-                    &session_id,
-                    &project.id,
-                    if session_index % 2 == 0 { "codex" } else { "claude" },
-                    project.path.as_str(),
-                    false,
-                )
-                .unwrap();
+            let agent = if session_index % 2 == 0 { "codex" } else { "claude" };
+            transaction.execute("INSERT INTO terminal_sessions(id,project_id,agent_id,working_directory,status,started_at,ended_at,resumed) VALUES(?1,?2,?3,?4,'EXITED',1,2,0)", params![session_id,project.id,agent,project.path]).unwrap();
             for event_index in 0..EVENTS_PER_SESSION {
-                let text = format!(
-                    "linha {event_index} da sessao {session_index}: cargo build --release artefato-{session_index}"
-                );
-                repository
-                    .record_terminal_event(&session_id, "OUTPUT", text.as_bytes())
-                    .unwrap();
+                let text = format!("linha {event_index} da sessao {session_index}: cargo build --release artefato-{session_index}");
+                transaction.execute("INSERT INTO terminal_events(session_id,direction,data,created_at) VALUES(?1,'OUTPUT',?2,1)", params![session_id,text.as_bytes()]).unwrap();
+                let event_id = transaction.last_insert_rowid();
+                transaction.execute("INSERT INTO terminal_event_search(rowid,session_id,direction,content) VALUES(?1,?2,'OUTPUT',?3)", params![event_id,session_id,text]).unwrap();
             }
-            repository.mark_session_ended(&session_id, "EXITED").unwrap();
         }
+        transaction.commit().unwrap();
 
         let started = std::time::Instant::now();
         let results = list_sessions(&repository, &project.id, 50, 0, "", "", "artefato-137", 0).unwrap();

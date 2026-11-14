@@ -36,6 +36,7 @@ jobs:
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           New-Item -ItemType Directory -Force qa/standalone | Out-Null
           Copy-Item -LiteralPath src-tauri/target/debug/universal-ai-cli.exe -Destination qa/standalone/Eureka42-QA.exe
+          Copy-Item -LiteralPath src-tauri/binaries/eureka42-agent-runner-x86_64-pc-windows-msvc.exe -Destination qa/standalone/eureka42-agent-runner.exe
           Get-ChildItem src-tauri/target/debug -Filter '*.dll' | Copy-Item -Destination qa/standalone
       - name: Build Windows development executable for live UI QA
         if: runner.os == 'Windows'
@@ -44,6 +45,7 @@ jobs:
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           New-Item -ItemType Directory -Force qa/development | Out-Null
           Copy-Item -LiteralPath src-tauri/target/debug/universal-ai-cli.exe -Destination qa/development/Eureka42-QA-dev.exe
+          Copy-Item -LiteralPath src-tauri/binaries/eureka42-agent-runner-x86_64-pc-windows-msvc.exe -Destination qa/development/eureka42-agent-runner.exe
           Get-ChildItem src-tauri/target/debug -Filter '*.dll' | Copy-Item -Destination qa/development
       - uses: actions/upload-artifact@v4
         if: runner.os == 'Windows'

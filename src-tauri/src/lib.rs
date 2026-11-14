@@ -1,5 +1,5 @@
 mod agents;
-pub mod agent_process;
+mod agent_process;
 mod context;
 mod handoff;
 mod history;

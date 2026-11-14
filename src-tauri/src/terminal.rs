@@ -343,6 +343,7 @@ mod tests {
         let mut writer = pair.master.take_writer().unwrap();
         let (sender, receiver) = std::sync::mpsc::channel();
         std::thread::spawn(move || {
+            let mut sender = Some(sender);
             let mut output = Vec::new();
             let mut buffer = [0u8; 1024];
             let mut answered_cursor_query = false;
@@ -356,9 +357,11 @@ mod tests {
                     writer.flush().unwrap();
                     answered_cursor_query = true;
                 }
-                if String::from_utf8_lossy(&output).contains("CONPTY_OK") { break; }
+                if String::from_utf8_lossy(&output).contains("CONPTY_OK") {
+                    if let Some(sender) = sender.take() { let _ = sender.send(String::from_utf8_lossy(&output).into_owned()); }
+                }
             }
-            let _ = sender.send(String::from_utf8_lossy(&output).into_owned());
+            if let Some(sender) = sender { let _ = sender.send(String::from_utf8_lossy(&output).into_owned()); }
         });
         let output = receiver.recv_timeout(std::time::Duration::from_secs(15));
         if output.is_err() { let _ = child.kill(); }

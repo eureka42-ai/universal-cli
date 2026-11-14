@@ -21,6 +21,7 @@
     }
   },
   "bundle": {
+    "externalBin": ["binaries/eureka42-agent-runner"],
     "active": true,
     "targets": "all",
     "createUpdaterArtifacts": true,
