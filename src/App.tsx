@@ -14,6 +14,7 @@ import { AboutDialog } from "./components/AboutDialog";
 import { SplashScreen } from "./components/SplashScreen";
 import logoEscuro from "./assets/brand/logo-escuro.svg";
 import logoClaro from "./assets/brand/logo-claro.svg";
+import { displayPath, modifierLabel } from "./data/presentation";
 import { agents as fallbackAgents } from "./data/workspace";
 import { detectInstalledAgents, listProjectAgents, type ConnectedAgent } from "./services/agents";
 import { chooseAndAddProject, listProjects, setProjectArchived, setProjectFavorite, setProjectFilesSync, setProjectTerminalSync, type Project } from "./services/projects";
@@ -48,13 +49,17 @@ const UTILITY_CHIPS = [
   { id: "Git", code: "G-04", color: "#0E8A77", ink: "#FFFFFF" },
   { id: "Tarefas", code: "K-05", color: "#9A6406", ink: "#FFFFFF" },
 ] as const;
+const NO_CONNECTED_AGENTS: ConnectedAgent[] = [];
 
 export function App() {
   const [projects, setProjects] = useState<Project[]>([]);
   const [selectedProjectId, setSelectedProjectId] = useState<string | null>(null);
   const [utility, setUtility] = useState<string>("Terminal");
-  const [agents, setAgents] = useState(fallbackAgents);
-  const [connectedAgents, setConnectedAgents] = useState<ConnectedAgent[]>([]);
+  const [agents, setAgents] = useState(isTauriRuntime() ? [] : fallbackAgents);
+  const [connectedByProject, setConnectedByProject] = useState<Record<string, ConnectedAgent[]>>({});
+  const [visitedProjects, setVisitedProjects] = useState<Set<string>>(new Set());
+  const connectedAgents = selectedProjectId ? connectedByProject[selectedProjectId] ?? NO_CONNECTED_AGENTS : NO_CONNECTED_AGENTS;
+  useEffect(() => { if (selectedProjectId) setVisitedProjects(current => new Set(current).add(selectedProjectId)); }, [selectedProjectId]);
   const [projectError, setProjectError] = useState<string | null>(null);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [handoffOpen, setHandoffOpen] = useState(false);
@@ -96,18 +101,18 @@ export function App() {
   // Agentes conectados do projeto selecionado — só aparecem os que já foram
   // usados em alguma sessão; recarrega ao trocar de projeto.
   useEffect(() => {
-    if (!isTauriRuntime() || !selectedProjectId) { setConnectedAgents([]); return; }
+    if (!isTauriRuntime() || !selectedProjectId) return;
     let active = true;
     listProjectAgents(selectedProjectId)
-      .then((rows) => { if (active) setConnectedAgents(rows); })
-      .catch(() => { if (active) setConnectedAgents([]); });
+      .then((rows) => { if (active) setConnectedByProject(current => ({ ...current, [selectedProjectId]: rows })); })
+      .catch(() => { if (active) setConnectedByProject(current => ({ ...current, [selectedProjectId]: [] })); });
     return () => { active = false; };
   }, [selectedProjectId]);
 
-  const refreshConnectedAgents = useCallback(() => {
-    if (!isTauriRuntime() || !selectedProjectIdRef.current) return;
-    listProjectAgents(selectedProjectIdRef.current)
-      .then(setConnectedAgents)
+  const refreshConnectedAgents = useCallback((projectId = selectedProjectIdRef.current) => {
+    if (!isTauriRuntime() || !projectId) return;
+    listProjectAgents(projectId)
+      .then(rows => setConnectedByProject(current => ({ ...current, [projectId]: rows })))
       .catch(() => undefined);
   }, []);
 
@@ -130,7 +135,9 @@ export function App() {
   }, [projects, connectedAgents]);
 
   useEffect(() => {
-    function refreshDetectedAgents() {
+    function refreshDetectedAgents(event: Event) {
+      const detected = (event as CustomEvent).detail;
+      if (Array.isArray(detected)) { setAgents(detected); return; }
       detectInstalledAgents().then((detected) => { if (detected) setAgents(detected); }).catch(() => undefined);
     }
     window.addEventListener("hostdrive:agents-changed", refreshDetectedAgents);
@@ -269,7 +276,7 @@ export function App() {
         <span className="titlebar-cloud"><StatusDot />{cloudLabel}</span>
         <span className="titlebar-agents">{connectedAgents.length > 0 ? `${connectedAgents.length} ${connectedAgents.length === 1 ? "agente conectado" : "agentes conectados"}` : `${agents.filter((agent) => agent.available).length} agentes instalados`}</span>
         <button className="titlebar-button" onClick={() => setAboutOpen(true)}>Sobre</button>
-        <button className="icon-button" aria-label="Configurações" title="Configurações (⌘,)" onClick={() => setSettingsOpen(true)}>
+        <button className="icon-button" aria-label="Configurações" title={`Configurações (${modifierLabel}+,)`} onClick={() => setSettingsOpen(true)}>
           <svg width="17" height="17" viewBox="0 0 16 16" aria-hidden="true">
             <path d="M6.5 1.5h3l.5 1.7a5 5 0 0 1 1.5.9l1.7-.6 1.5 2.6-1.3 1.2a5 5 0 0 1 0 1.4l1.3 1.2-1.5 2.6-1.7-.6a5 5 0 0 1-1.5.9l-.5 1.7h-3l-.5-1.7a5 5 0 0 1-1.5-.9l-1.7.6-1.5-2.6L2.6 9.5a5 5 0 0 1 0-1.4L1.3 6.9l1.5-2.6 1.7.6a5 5 0 0 1 1.5-.9z" fill="none" stroke="currentColor" strokeWidth="1.2" strokeLinejoin="round" />
             <circle cx="8" cy="8" r="2.1" fill="none" stroke="currentColor" strokeWidth="1.2" />
@@ -291,7 +298,7 @@ export function App() {
         <span className="chip-label">{chip.id.toUpperCase()}</span>
       </button>)}
     </nav>
-    <section className="project-header"><div><h1>{selectedProject?.name ?? "Abra um projeto"}</h1><span>{selectedProject?.path ?? "Selecione uma pasta para começar"}</span></div><div className="project-header-actions">{cloudSyncEnabled && selectedProject ? <><button className={selectedProject.filesSyncEnabled ? "sync-history-toggle sync-history-toggle--active" : "sync-history-toggle"} onClick={() => toggleFilesSync(selectedProject)} title="Espelha os arquivos do projeto na sua nuvem (exceto .git, dependências, segredos e arquivos > 4 MiB)">☁ Arquivos: {selectedProject.filesSyncEnabled ? "ligado" : "desligado"}</button><button className={selectedProject.syncTerminalHistory ? "sync-history-toggle sync-history-toggle--active" : "sync-history-toggle"} onClick={() => toggleTerminalHistorySync(selectedProject)} title="Histórico de terminal pode conter segredos colados — desligado por padrão">☁ Histórico: {selectedProject.syncTerminalHistory ? "ligado" : "desligado"}</button></> : null}<button className="handoff-button" disabled={!selectedProject} onClick={() => setHandoffOpen(true)}>⇄ <span>Transferir contexto</span></button></div></section>
+    <section className="project-header"><div><h1>{selectedProject?.name ?? "Abra um projeto"}</h1><span>{selectedProject ? displayPath(selectedProject.path) : "Selecione uma pasta para começar"}</span></div><div className="project-header-actions">{cloudSyncEnabled && selectedProject ? <><button className={selectedProject.filesSyncEnabled ? "sync-history-toggle sync-history-toggle--active" : "sync-history-toggle"} onClick={() => toggleFilesSync(selectedProject)} title="Espelha os arquivos do projeto na sua nuvem (exceto .git, dependências, segredos e arquivos > 4 MiB)">☁ Arquivos: {selectedProject.filesSyncEnabled ? "ligado" : "desligado"}</button><button className={selectedProject.syncTerminalHistory ? "sync-history-toggle sync-history-toggle--active" : "sync-history-toggle"} onClick={() => toggleTerminalHistorySync(selectedProject)} title="Histórico de terminal pode conter segredos colados — desligado por padrão">☁ Histórico: {selectedProject.syncTerminalHistory ? "ligado" : "desligado"}</button></> : null}<button className="handoff-button" disabled={!selectedProject} onClick={() => setHandoffOpen(true)}>⇄ <span>Transferir contexto</span></button></div></section>
     {availableUpdate ? <UpdateBanner update={availableUpdate} onDismiss={() => setAvailableUpdate(null)} /> : null}
     {projectError ? <div className="project-error" role="alert">{projectError}</div> : null}
     {syncConflict ? <div className="project-error sync-conflict" role="alert"><p>{syncConflict.message}</p>{syncConflict.files.length > 0 ? <ul className="sync-conflict-files">{syncConflict.files.slice(0, 8).map((file) => <li key={file}>{file}</li>)}{syncConflict.files.length > 8 ? <li>… e mais {syncConflict.files.length - 8}</li> : null}</ul> : null}<div className="sync-conflict-actions"><button className="secondary-button" onClick={() => resolveSyncConflict("local")}>Usar versão local</button><button className="secondary-button" onClick={() => resolveSyncConflict("remote")}>Usar versão da nuvem</button></div></div> : null}
@@ -299,7 +306,7 @@ export function App() {
     {projects.length === 0 ? <Onboarding onAddProject={addProject} /> : null}
     <div className="content-stack" style={{ "--chip": activeChip.color } as React.CSSProperties}>
       <div className="content-keyline" aria-hidden="true" />
-      <TerminalWorkspace agents={agents} connectedAgents={connectedAgents} workingDirectory={selectedProject?.path ?? null} active={utility === "Terminal"} onAgentStarted={refreshConnectedAgents} /><HistoryPane projectId={selectedProject?.id ?? null} active={utility === "Histórico"} /><MemoryPane projectId={selectedProject?.id ?? null} active={utility === "Memória"} /><GitPane projectId={selectedProject?.id ?? null} active={utility === "Git"} /><TasksPane projectId={selectedProject?.id ?? null} active={utility === "Tarefas"} />
+      {projects.filter(project => visitedProjects.has(project.id) || project.id === selectedProjectId).map(project => <TerminalWorkspace key={project.id} agents={agents} connectedAgents={connectedByProject[project.id] ?? []} workingDirectory={project.path} active={utility === "Terminal" && project.id === selectedProjectId} onAgentStarted={() => refreshConnectedAgents(project.id)} />)}<HistoryPane agents={agents} key={`history-${selectedProjectId}`} projectId={selectedProject?.id ?? null} active={utility === "Histórico"} /><MemoryPane key={`memory-${selectedProjectId}`} projectId={selectedProject?.id ?? null} active={utility === "Memória"} /><GitPane key={`git-${selectedProjectId}`} projectId={selectedProject?.id ?? null} active={utility === "Git"} /><TasksPane key={`tasks-${selectedProjectId}`} projectId={selectedProject?.id ?? null} active={utility === "Tarefas"} />
     </div>
     <SettingsDialog open={settingsOpen} onClose={() => setSettingsOpen(false)} onSettingsSaved={onSettingsSaved} />
     <HandoffDialog open={handoffOpen} projectId={selectedProject?.id ?? null} agents={agents} onClose={() => setHandoffOpen(false)} />

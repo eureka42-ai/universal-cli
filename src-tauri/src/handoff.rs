@@ -4,7 +4,7 @@ use serde::Serialize;
 use serde_json::json;
 use std::{
     fs,
-    path::Path,
+    path::{Path, PathBuf},
     time::{SystemTime, UNIX_EPOCH},
 };
 use tauri::State;
@@ -18,6 +18,43 @@ pub struct HandoffPackage {
     package_path: String,
     target_agent: String,
     warnings: Vec<String>,
+}
+
+fn package_directory(repository: &ProjectRepository, id: &str) -> Result<PathBuf, String> {
+    let connection = repository.open_for_workspace().map_err(db_error)?;
+    let stored: String = connection.query_row("SELECT package_path FROM handoffs WHERE id=?1", [id], |row| row.get(0)).map_err(db_error)?;
+    let root = repository.handoff_root().canonicalize().map_err(io_error)?;
+    let directory = PathBuf::from(stored).canonicalize().map_err(io_error)?;
+    if !directory.starts_with(&root) || directory == root || !directory.is_dir() {
+        return Err("o pacote está fora do diretório local de transferências".into());
+    }
+    Ok(directory)
+}
+
+#[tauri::command]
+pub fn read_handoff_context(repository: State<'_, ProjectRepository>, handoff_id: String) -> Result<String, String> {
+    let directory = package_directory(&repository, &handoff_id)?;
+    let file = directory.join("context.md").canonicalize().map_err(io_error)?;
+    if !file.starts_with(&directory) { return Err("contexto fora do pacote".into()); }
+    use std::io::Read;
+    let mut bytes = Vec::new();
+    fs::File::open(file).map_err(io_error)?.take(512 * 1024 + 1).read_to_end(&mut bytes).map_err(io_error)?;
+    if bytes.len() > 512 * 1024 { return Err("contexto excede o limite de prévia (512 KiB); abra a pasta para revisar".into()); }
+    String::from_utf8(bytes).map_err(|_| "o contexto não é um arquivo UTF-8 válido".into())
+}
+
+#[tauri::command]
+pub fn open_handoff_folder(repository: State<'_, ProjectRepository>, handoff_id: String) -> Result<(), String> {
+    let directory = package_directory(&repository, &handoff_id)?;
+    #[cfg(windows)]
+    let opener = PathBuf::from(std::env::var_os("SystemRoot").unwrap_or_else(|| "C:\\Windows".into())).join("explorer.exe");
+    #[cfg(target_os = "macos")]
+    let opener = PathBuf::from("/usr/bin/open");
+    #[cfg(not(any(windows, target_os = "macos")))]
+    let opener = PathBuf::from("xdg-open");
+    std::process::Command::new(opener).arg(directory).spawn()
+        .map_err(|error| format!("não foi possível abrir a pasta: {error}"))?;
+    Ok(())
 }
 
 #[tauri::command]

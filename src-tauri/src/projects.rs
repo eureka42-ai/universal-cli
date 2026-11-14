@@ -426,10 +426,22 @@ impl ProjectRepository {
         status: &str,
     ) -> Result<(), rusqlite::Error> {
         self.open()?.execute(
-            "UPDATE terminal_sessions SET status=?1,ended_at=?2 WHERE id=?3",
+            "UPDATE terminal_sessions SET status=?1,ended_at=?2 WHERE id=?3 AND status='RUNNING'",
             params![status, unix_timestamp().unwrap_or_default(), session_id],
         )?;
         Ok(())
+    }
+
+    /// Keep failed startup attempts searchable without storing the command
+    /// arguments (which may include private context) or a terminal transcript.
+    pub(crate) fn record_launch_failure(&self, session_id: &str, stage: &str) -> Result<(), rusqlite::Error> {
+        let mut connection = self.open()?;
+        let transaction = connection.transaction()?;
+        transaction.execute("UPDATE terminal_sessions SET status='FAILED',ended_at=?1 WHERE id=?2", params![unix_timestamp().unwrap_or_default(), session_id])?;
+        transaction.execute("INSERT INTO terminal_events(session_id,direction,data,created_at) VALUES(?1,'ERROR',?2,?3)", params![session_id, stage.as_bytes(), unix_timestamp().unwrap_or_default()])?;
+        let event_id = transaction.last_insert_rowid();
+        transaction.execute("INSERT INTO terminal_event_search(rowid,session_id,direction,content) VALUES(?1,?2,'ERROR',?3)", params![event_id, session_id, stage])?;
+        transaction.commit()
     }
 
     pub(crate) fn should_capture_terminal_events(&self) -> Result<bool, rusqlite::Error> {
@@ -993,6 +1005,28 @@ mod tests {
                 .unwrap()
                 .is_empty()
         );
+    }
+
+    #[test]
+    fn failed_attempt_survives_restart_and_remains_searchable() {
+        let (directory, repository) = repository();
+        let workspace = directory.path().join("workspace-failure");
+        std::fs::create_dir(&workspace).unwrap();
+        let project = add(&repository, &workspace).unwrap();
+        repository.record_session_started("failed-1", &project.id, "gemini", &project.path, false).unwrap();
+        repository.record_launch_failure("failed-1", "Falha ao iniciar agente: pre-requisito ausente").unwrap();
+        // A delayed reader exit must not overwrite a failure or explicit close.
+        repository.mark_session_ended("failed-1", "EXITED").unwrap();
+        repository.initialize().unwrap();
+        let matches = list_sessions(&repository, &project.id, 50, 0, "gemini", "FAILED", "pre-requisito", 0).unwrap();
+        assert_eq!(matches.len(), 1);
+        assert_eq!(matches[0].status, "FAILED");
+        assert_eq!(matches[0].event_count, 1);
+        assert!(matches[0].ended_at.is_some());
+        repository.record_session_started("closed-1", &project.id, "gemini", &project.path, false).unwrap();
+        repository.mark_session_ended("closed-1", "TERMINATED").unwrap();
+        repository.mark_session_ended("closed-1", "EXITED").unwrap();
+        assert_eq!(list_sessions(&repository, &project.id, 50, 0, "", "TERMINATED", "", 0).unwrap().len(), 1);
     }
 
     #[test]

@@ -75,6 +75,17 @@ pub fn launch_terminal(
         .project_id_for_path(&cwd_string)
         .map_err(|error| format!("falha ao localizar projeto: {error}"))?
         .ok_or_else(|| "o diretório não pertence a um projeto ativo".to_string())?;
+    let session_id = Uuid::new_v4().to_string();
+    repository.record_session_started(&session_id, &project_id, &agent_id, &cwd_string, resumed)
+        .map_err(|error| format!("falha ao registrar tentativa de sessão: {error}"))?;
+    let fail = |stage: &str, error: String| {
+        match repository.record_launch_failure(&session_id, stage) {
+            Ok(()) => error,
+            Err(record_error) => format!("{error}; falha ao registrar diagnóstico: {record_error}"),
+        }
+    };
+    let size = checked_size(cols, rows)
+        .map_err(|error| fail("Dimensões do terminal inválidas.", error))?;
 
     // Contexto universal entre conversas: mantém `.eureka42/contexto.md`
     // fresco no projeto e injeta o agregado em novas sessões dos agentes
@@ -94,9 +105,10 @@ pub fn launch_terminal(
     };
 
     let pair = native_pty_system()
-        .openpty(checked_size(cols, rows)?)
-        .map_err(|error| format!("falha ao abrir PTY: {error}"))?;
-    let mut command = CommandBuilder::new(executable);
+        .openpty(size)
+        .map_err(|error| fail("Falha ao abrir PTY.", format!("falha ao abrir PTY: {error}")))?;
+    let mut command = crate::agent_process::pty_command(&executable)
+        .map_err(|error| fail("Falha ao preparar lançador do agente.", error))?;
     if let Some(flags) = resume_flags {
         command.args(flags);
     }
@@ -111,30 +123,32 @@ pub fn launch_terminal(
     let mut child = pair
         .slave
         .spawn_command(command)
-        .map_err(|error| format!("falha ao iniciar agente: {error}"))?;
+        .map_err(|error| fail("Falha ao iniciar agente. Verifique o executável e seus pré-requisitos.", format!("falha ao iniciar agente: {error}")))?;
     drop(pair.slave);
     let mut reader = pair
         .master
         .try_clone_reader()
-        .map_err(|error| format!("falha ao abrir saída do PTY: {error}"))?;
+        .map_err(|error| { let _ = child.kill(); fail("Falha ao abrir saída do PTY.", format!("falha ao abrir saída do PTY: {error}")) })?;
     let writer = pair
         .master
         .take_writer()
-        .map_err(|error| format!("falha ao abrir entrada do PTY: {error}"))?;
-    let session_id = Uuid::new_v4().to_string();
+        .map_err(|error| { let _ = child.kill(); fail("Falha ao abrir entrada do PTY.", format!("falha ao abrir entrada do PTY: {error}")) })?;
     let output_session_id = session_id.clone();
-    if let Err(error) = repository.record_session_started(
-        &session_id,
-        &project_id,
-        &agent_id,
-        &cwd_string,
-        resumed,
-    ) {
-        let _ = child.kill();
-        return Err(format!("falha ao registrar sessão: {error}"));
-    }
     let output_repository = repository.inner().clone();
     let output_project_id = project_id.clone();
+
+    manager
+        .sessions
+        .lock()
+        .map_err(|_| { let _ = child.kill(); fail("Gerenciador de terminal indisponível.", "gerenciador de terminal indisponível".to_string()) })?
+        .insert(
+            session_id.clone(),
+            TerminalSession {
+                master: pair.master,
+                writer,
+                child,
+            },
+        );
 
     thread::spawn(move || {
         let mut buffer = [0_u8; 8192];
@@ -162,7 +176,15 @@ pub fn launch_terminal(
                 }
             }
         }
-        let _ = output_repository.mark_session_ended(&output_session_id, "EXITED");
+        let status = {
+            let manager = app.state::<TerminalManager>();
+            let session = manager.sessions.lock().ok().and_then(|mut sessions| sessions.remove(&output_session_id));
+            match session {
+                Some(mut session) => match session.child.wait() { Ok(status) if status.success() => "EXITED", _ => "FAILED" },
+                None => "EXITED", // An explicit close already recorded TERMINATED.
+            }
+        };
+        let _ = output_repository.mark_session_ended(&output_session_id, status);
         // Fim de conversa: publica o contexto atualizado para a próxima.
         let _ = context::write_context_file(&output_repository, &output_project_id);
         let _ = app.emit(
@@ -173,18 +195,6 @@ pub fn launch_terminal(
         );
     });
 
-    manager
-        .sessions
-        .lock()
-        .map_err(|_| "gerenciador de terminal indisponível".to_string())?
-        .insert(
-            session_id.clone(),
-            TerminalSession {
-                master: pair.master,
-                writer,
-                child,
-            },
-        );
     Ok(TerminalStarted {
         session_id,
         agent_id,
@@ -249,19 +259,23 @@ pub fn close_terminal(
     repository: State<'_, ProjectRepository>,
     session_id: String,
 ) -> Result<(), String> {
-    let mut session = manager
-        .sessions
-        .lock()
-        .map_err(|_| "gerenciador de terminal indisponível".to_string())?
-        .remove(&session_id)
-        .ok_or_else(|| "sessão de terminal não encontrada".to_string())?;
-    session
-        .child
-        .kill()
-        .map_err(|error| format!("falha ao encerrar agente: {error}"))?;
-    repository
-        .mark_session_ended(&session_id, "TERMINATED")
-        .map_err(|error| format!("falha ao finalizar registro: {error}"))
+    let mut sessions = manager.sessions.lock()
+        .map_err(|_| "gerenciador de terminal indisponível".to_string())?;
+    let Some(session) = sessions.get_mut(&session_id) else { return Ok(()); };
+    if session.child.try_wait().map_err(|error| error.to_string())?.is_none() {
+        #[cfg(windows)]
+        if let Some(pid) = session.child.process_id() {
+            if let Err(error) = crate::agent_process::terminate_tree(pid) {
+                if session.child.try_wait().map_err(|error| error.to_string())?.is_none() { return Err(error); }
+            }
+        }
+        #[cfg(not(windows))]
+        session.child.kill().map_err(|error| format!("falha ao encerrar agente: {error}"))?;
+    }
+    repository.mark_session_ended(&session_id, "TERMINATED")
+        .map_err(|error| format!("falha ao finalizar registro: {error}"))?;
+    sessions.remove(&session_id);
+    Ok(())
 }
 
 fn canonical_working_directory(requested: Option<String>) -> Result<PathBuf, String> {
@@ -306,6 +320,27 @@ mod tests {
     #[test]
     fn rejects_missing_working_directory() {
         assert!(canonical_working_directory(Some("/definitely/missing/uai-cli".into())).is_err());
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn windows_conpty_captures_real_output_in_unicode_working_directory() {
+        let directory = tempfile::tempdir().unwrap();
+        let cwd = directory.path().join("projeto com espaços e ação");
+        std::fs::create_dir(&cwd).unwrap();
+        let pair = native_pty_system().openpty(checked_size(Some(80), Some(24)).unwrap()).unwrap();
+        let mut command = CommandBuilder::new(std::env::var_os("COMSPEC").unwrap_or_else(|| "cmd.exe".into()));
+        command.args(["/d", "/c", "echo", "CONPTY_OK"]);
+        command.cwd(cwd);
+        let mut child = pair.slave.spawn_command(command).unwrap();
+        drop(pair.slave);
+        let mut reader = pair.master.try_clone_reader().unwrap();
+        let (sender, receiver) = std::sync::mpsc::channel();
+        std::thread::spawn(move || { let mut output = String::new(); let _ = reader.read_to_string(&mut output); let _ = sender.send(output); });
+        let output = receiver.recv_timeout(std::time::Duration::from_secs(15));
+        if output.is_err() { let _ = child.kill(); }
+        assert!(output.unwrap().contains("CONPTY_OK"));
+        assert!(child.wait().unwrap().success());
     }
 
     #[cfg(unix)]

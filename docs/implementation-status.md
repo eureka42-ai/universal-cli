@@ -1,5 +1,10 @@
 # Estado da implementação
 
+## 2026-11-14 — Windows user QA and fixes in progress
+
+See `docs/decisions/009-windows-launchers-and-qa.md`. Installed-app failures were reproduced on Windows. Source fixes cover npm launchers, custom-agent resolution, failed-attempt history, project terminal isolation, explicit handoff review and UI diagnostics. Frontend: **17 Vitest tests passed**, production build passed. Native regression tests and three-platform CI added; local native tests initially blocked by missing GNU `dlltool`. Updated-binary interaction and provider sessions remain **NOT_VERIFIED** until executed. No release/tag was published.
+
+
 Atualizado em 2026-11-12. **Correções e melhorias de uso real** (relatadas pelo
 usuário ao testar o app no Mac): botão Fechar nativo quebrado, fluxo de agentes
 confuso, fontes pequenas, splash mais longo, histórico por projeto na sidebar.

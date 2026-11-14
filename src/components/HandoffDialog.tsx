@@ -1,9 +1,24 @@
-import { useEffect, useState } from "react";
-import { prepareHandoff, type HandoffPackage } from "../services/handoff";
+import { useEffect, useRef, useState } from "react";
+import { openHandoffFolder, prepareHandoff, readHandoffContext, type HandoffPackage } from "../services/handoff";
+import { displayPath } from "../data/presentation";
 import type { Agent } from "../data/workspace";
 
 export function HandoffDialog({ open, projectId, agents, onClose }: { open: boolean; projectId: string | null; agents: Agent[]; onClose(): void }) {
-  const [source, setSource] = useState("codex"); const [target, setTarget] = useState("claude"); const [result, setResult] = useState<HandoffPackage | null>(null); const [status, setStatus] = useState("");
+  const [source, setSource] = useState("");
+  const [target, setTarget] = useState("");
+  const [result, setResult] = useState<HandoffPackage | null>(null);
+  const [context, setContext] = useState("");
+  const [status, setStatus] = useState("");
+  const [pending, setPending] = useState(false);
+  const request = useRef(0);
+  const installed = agents.filter(agent => agent.available);
+  const agentIds = installed.map(agent => agent.id).join("|");
+  useEffect(() => {
+    request.current += 1;
+    setResult(null); setContext(""); setStatus(""); setPending(false);
+    setSource(installed[0]?.id ?? ""); setTarget(installed[1]?.id ?? "");
+    return () => { request.current += 1; };
+  }, [open, projectId, agentIds]);
   useEffect(() => {
     if (!open) return;
     const closeOnEscape = (event: KeyboardEvent) => { if (event.key === "Escape") onClose(); };
@@ -11,6 +26,43 @@ export function HandoffDialog({ open, projectId, agents, onClose }: { open: bool
     return () => window.removeEventListener("keydown", closeOnEscape);
   }, [open, onClose]);
   if (!open) return null;
-  async function create() { if (!projectId) return; setStatus("Preparando pacote…"); setResult(null); try { const value = await prepareHandoff(projectId, source, target); setResult(value); setStatus("Pacote pronto para revisão e entrega explícita."); } catch (error) { setStatus(String(error)); } }
-  return <div className="settings-backdrop" role="presentation"><section className="handoff-dialog" role="dialog" aria-modal="true" aria-labelledby="handoff-title"><header><div><span>UAHP 1.0</span><h2 id="handoff-title">Transferir contexto</h2></div><button className="settings-close" onClick={onClose} aria-label="Fechar transferência">×</button></header><div className="handoff-content"><p>Cria um pacote local e verificável. A sessão atual e os arquivos do projeto não são alterados.</p><div className="handoff-route"><label><span>Origem</span><select value={source} onChange={(event) => setSource(event.target.value)}>{agents.filter((agent) => agent.available).map((agent) => <option value={agent.id} key={agent.id}>{agent.label}</option>)}</select></label><b>→</b><label><span>Destino</span><select value={target} onChange={(event) => setTarget(event.target.value)}>{agents.filter((agent) => agent.available).map((agent) => <option value={agent.id} key={agent.id}>{agent.label}</option>)}</select></label></div><div className="handoff-scope"><strong>Conteúdo incluído</strong><ul><li>Manifesto versionado e diretório do projeto</li><li>Memória confirmada e tarefas locais</li><li>Prompt de continuidade com limites explícitos</li></ul><small>Arquivos do projeto, `.env`, chaves e credenciais não são coletados.</small></div>{result ? <div className="handoff-result"><strong>Pacote {result.status}</strong><code>{result.packagePath}</code>{result.warnings.map((warning) => <p key={warning}>⚠ {warning}</p>)}</div> : null}{status ? <p className="handoff-status">{status}</p> : null}</div><footer><button className="secondary-button" onClick={onClose}>Fechar</button><button className="primary-button" onClick={create} disabled={!projectId || source === target}>Criar pacote</button></footer></section></div>;
+  const validRoute = Boolean(projectId && source && target && source !== target && installed.some(agent => agent.id === source) && installed.some(agent => agent.id === target));
+  function changeRoute(value: string, destination: boolean) {
+    if (destination) setTarget(value); else setSource(value);
+    setResult(null); setContext(""); setStatus(""); request.current += 1;
+  }
+  async function create() {
+    if (!projectId || !validRoute || pending) return;
+    const current = ++request.current;
+    setPending(true); setStatus("Preparando pacote…"); setResult(null); setContext("");
+    try {
+      const value = await prepareHandoff(projectId, source, target);
+      if (current !== request.current) return;
+      setResult(value);
+      try {
+        const text = await readHandoffContext(value.id);
+        if (current === request.current) setContext(text);
+      } catch (error) { if (current === request.current) setStatus(String(error)); return; }
+      if (current === request.current) setStatus("Revise a prévia. Depois, copie o contexto e forneça-o explicitamente ao agente de destino.");
+    } catch (error) { if (current === request.current) setStatus(String(error)); }
+    finally { if (current === request.current) setPending(false); }
+  }
+  async function copy(value: string) {
+    try { await navigator.clipboard.writeText(value); setStatus("Copiado. O envio ao outro agente continua sob seu controle."); }
+    catch { setStatus("Não foi possível copiar. Selecione o texto na prévia ou abra a pasta do pacote."); }
+  }
+  async function showFolder() {
+    if (!result) return;
+    try { await openHandoffFolder(result.id); } catch (error) { setStatus(String(error)); }
+  }
+  return <div className="settings-backdrop" role="presentation"><section className="handoff-dialog" role="dialog" aria-modal="true" aria-labelledby="handoff-title">
+    <header><div><span>UAHP 1.0</span><h2 id="handoff-title">Transferir contexto</h2></div><button className="settings-close" onClick={onClose} aria-label="Fechar transferência">×</button></header>
+    <div className="handoff-content"><p>Prepare o contexto do projeto para continuar em outro agente.</p>
+      {installed.length < 2 ? <p role="status">Conecte ou cadastre pelo menos dois agentes para escolher uma origem e um destino.</p> : null}
+      <div className="handoff-route"><label><span>Origem</span><select value={source} disabled={pending} onChange={event => changeRoute(event.target.value, false)}>{installed.map(agent => <option value={agent.id} key={agent.id}>{agent.label}</option>)}</select></label><b>→</b><label><span>Destino</span><select value={target} disabled={pending} onChange={event => changeRoute(event.target.value, true)}>{installed.map(agent => <option value={agent.id} key={agent.id}>{agent.label}</option>)}</select></label></div>
+      <div className="handoff-scope"><strong>Conteúdo incluído</strong><ul><li>Diretório e informações do projeto</li><li>Memória confirmada e tarefas locais</li><li>Orientação para continuar o trabalho</li></ul><small>Arquivos do projeto, chaves e credenciais não são coletados.</small></div>
+      {result ? <div className="handoff-result"><strong>Pacote pronto para revisão</strong><code>{displayPath(result.packagePath)}</code>{result.warnings.map(warning => <p key={warning}>⚠ {warning}</p>)}<div className="handoff-actions"><button className="secondary-button" onClick={() => void showFolder()}>Abrir pasta</button><button className="secondary-button" onClick={() => void copy(displayPath(result.packagePath))}>Copiar caminho</button></div>{context ? <><label htmlFor="handoff-preview">Prévia do contexto</label><textarea id="handoff-preview" className="handoff-preview" readOnly value={context} /><button className="primary-button" onClick={() => void copy(context)}>Copiar contexto</button></> : null}<p>O contexto ainda não foi enviado ao agente.</p></div> : null}
+      {status ? <p className="handoff-status" role="status">{status}</p> : null}
+    </div><footer><button className="secondary-button" onClick={onClose}>Fechar</button><button className="primary-button" onClick={() => void create()} disabled={!validRoute || pending}>{pending ? "Preparando…" : result ? "Criar outro pacote" : "Criar pacote"}</button></footer>
+  </section></div>;
 }

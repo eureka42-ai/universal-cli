@@ -1,7 +1,8 @@
 import { useEffect, useRef, useState } from "react";
 import type { Terminal } from "@xterm/xterm";
 import { terminalLines, type Agent } from "../data/workspace";
-import { addCustomAgent, type ConnectedAgent } from "../services/agents";
+import { addCustomAgent, detectInstalledAgents, type ConnectedAgent } from "../services/agents";
+import { displayPath } from "../data/presentation";
 import { closeTerminal, isTauriRuntime, launchTerminal, listenToTerminal, resizeTerminal, sendTerminalInput } from "../services/terminal";
 import { OrchestratorBar, type OrchestratorBarHandle } from "./OrchestratorBar";
 import "@xterm/xterm/css/xterm.css";
@@ -25,6 +26,9 @@ export function TerminalPane({ agents, connectedAgents, workingDirectory, active
   const [customLabel, setCustomLabel] = useState("");
   const [customExecutable, setCustomExecutable] = useState("");
   const [addError, setAddError] = useState<string | null>(null);
+  const [launchError, setLaunchError] = useState<string | null>(null);
+  const [checkingAgents, setCheckingAgents] = useState(false);
+  const [registering, setRegistering] = useState(false);
   const [sessionId, setSessionId] = useState<string | null>(null);
   const [status, setStatus] = useState<"idle" | "starting" | "running" | "exited" | "error">("idle");
   const [resumedSession, setResumedSession] = useState(false);
@@ -32,6 +36,9 @@ export function TerminalPane({ agents, connectedAgents, workingDirectory, active
   const hostRef = useRef<HTMLDivElement>(null);
   const terminalRef = useRef<Terminal | null>(null);
   const sessionRef = useRef<string | null>(null);
+  const startingRef = useRef(false);
+  const pendingEvents = useRef<{ sessionId: string; data?: number[] }[]>([]);
+  const fitRef = useRef<(() => void) | null>(null);
   const orchestratorRef = useRef<OrchestratorBarHandle>(null);
   const addButtonRef = useRef<HTMLButtonElement>(null);
   const [pickerPos, setPickerPos] = useState<{ top: number; left: number } | null>(null);
@@ -46,12 +53,13 @@ export function TerminalPane({ agents, connectedAgents, workingDirectory, active
   // lista (ou foi fechado) e não está mais instalado, cai no mais recente
   // conectado visível.
   useEffect(() => {
+    if (busy) return;
     if (!activeAgent || hiddenAgents.has(activeAgent)) { setActiveAgent(visibleConnected[0]?.id ?? null); return; }
     const stillValid =
       visibleConnected.some((agent) => agent.id === activeAgent) ||
       agents.some((agent) => agent.id === activeAgent && !hiddenAgents.has(agent.id));
     if (!stillValid) setActiveAgent(visibleConnected[0]?.id ?? null);
-  }, [connectedAgents, agents, activeAgent, hiddenAgents]);
+  }, [connectedAgents, agents, activeAgent, hiddenAgents, busy]);
 
   useEffect(() => {
     if (!native || !hostRef.current) return;
@@ -65,15 +73,17 @@ export function TerminalPane({ agents, connectedAgents, workingDirectory, active
       const terminal = new Terminal({ cursorBlink: true, fontFamily: "'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, monospace", fontSize: 14, theme: { background: "#0A0D13", foreground: "#E9EDF2", cursor: "#34D6BC", selectionBackground: "#1A2130" } });
       const fit = new FitAddon();
       terminal.loadAddon(fit);
+      fitRef.current = () => fit.fit();
       terminal.open(hostRef.current);
       fit.fit();
       terminal.writeln("\x1b[38;2;52;214;188mEureka42 — PTY pronto\x1b[0m");
       terminalRef.current = terminal;
       input = terminal.onData((data) => { if (sessionRef.current) void sendTerminalInput(sessionRef.current, data); });
       cleanup = await listenToTerminal(
-        (event) => { if (event.sessionId === sessionRef.current) terminal.write(new Uint8Array(event.data)); },
-        (event) => { if (event.sessionId === sessionRef.current) { sessionRef.current = null; setSessionId(null); setStatus("exited"); } }
+        (event) => { if (event.sessionId === sessionRef.current) terminal.write(new Uint8Array(event.data)); else if (startingRef.current && pendingEvents.current.length < 256) pendingEvents.current.push(event); },
+        (event) => { if (event.sessionId === sessionRef.current) { sessionRef.current = null; setSessionId(null); setStatus("exited"); onAgentStarted(); } else if (startingRef.current) pendingEvents.current.push(event); }
       );
+      if (disposed) { cleanup(); terminal.dispose(); return; }
       observer = new ResizeObserver(() => { fit.fit(); if (sessionRef.current) void resizeTerminal(sessionRef.current, terminal.cols, terminal.rows); });
       observer.observe(hostRef.current);
     });
@@ -83,6 +93,8 @@ export function TerminalPane({ agents, connectedAgents, workingDirectory, active
       if (sessionRef.current) void closeTerminal(sessionRef.current);
     };
   }, [native]);
+
+  useEffect(() => { if (active) fitRef.current?.(); }, [active]);
 
   useEffect(() => {
     if (!active) return;
@@ -109,7 +121,10 @@ export function TerminalPane({ agents, connectedAgents, workingDirectory, active
       é o ato de conectar (sem botão "Retomar"). */
   async function startSession(agentId: string, resume: boolean) {
     const terminal = terminalRef.current;
-    if (!terminal || !workingDirectory || !agentId || busy) return;
+    if (!terminal || !workingDirectory || !agentId || busy || startingRef.current || sessionRef.current) return;
+    startingRef.current = true;
+    pendingEvents.current = [];
+    setLaunchError(null);
     setStatus("starting");
     try {
       terminal.reset();
@@ -117,26 +132,39 @@ export function TerminalPane({ agents, connectedAgents, workingDirectory, active
       const started = await launchTerminal(agentId, workingDirectory, terminal.cols, terminal.rows, resume);
       sessionRef.current = started.sessionId; setSessionId(started.sessionId); setStatus("running"); setResumedSession(started.resumed);
       terminal.writeln(`\x1b[38;2;52;214;188mEureka42 — ${started.resumed ? "sessão retomada" : "agente conectado"}.\x1b[0m`);
+      for (const event of pendingEvents.current) {
+        if (event.sessionId !== started.sessionId) continue;
+        if (event.data) terminal.write(new Uint8Array(event.data));
+        else { sessionRef.current = null; setSessionId(null); setStatus("exited"); }
+      }
       terminal.focus();
       onAgentStarted();
     } catch (error) {
       setStatus("error");
+      setLaunchError(String(error));
       terminal.writeln(`\r\n\x1b[31m${String(error)}\x1b[0m`);
+      onAgentStarted();
+    } finally {
+      startingRef.current = false;
+      pendingEvents.current = [];
     }
   }
 
   async function stopSession() {
     const currentSession = sessionRef.current;
-    if (!currentSession) return;
+    if (!currentSession) return true;
     try {
       await closeTerminal(currentSession);
       terminalRef.current?.writeln("\r\n\x1b[38;2;242;179;61mSessão encerrada pelo usuário.\x1b[0m");
       sessionRef.current = null;
       setSessionId(null);
       setStatus("exited");
+      onAgentStarted();
+      return true;
     } catch (error) {
-      setStatus("error");
+      setLaunchError(String(error));
       terminalRef.current?.writeln(`\r\n\x1b[31m${String(error)}\x1b[0m`);
+      return false;
     }
   }
 
@@ -153,21 +181,26 @@ export function TerminalPane({ agents, connectedAgents, workingDirectory, active
   /** Escolha no picker conecta direto: abre a sessão na hora (retomando
       quando a CLI suporta). */
   function connectInstalled(agentId: string) {
+    if (busy) return;
     const agent = agents.find((candidate) => candidate.id === agentId);
     setActiveAgent(agentId);
     unhideAgent(agentId);
     closePicker();
-    void startSession(agentId, agent?.supportsResume ?? false);
+    void startSession(agentId, Boolean(agent?.supportsResume && connectedAgents.some(item => item.id === agentId)));
   }
 
   /** Agente já conectado (tem aba): o picker apenas abre a aba dele. */
   function openConnected(agentId: string) {
+    if (busy && agentId !== activeAgent) return;
     setActiveAgent(agentId);
     unhideAgent(agentId);
     closePicker();
+    if (!busy) void startSession(agentId, agents.find(agent => agent.id === agentId)?.supportsResume ?? false);
   }
 
   async function registerCustom() {
+    if (busy || registering || !customLabel.trim() || !customExecutable.trim()) return;
+    setRegistering(true);
     setAddError(null);
     try {
       const created = await addCustomAgent(customLabel, customExecutable);
@@ -180,7 +213,27 @@ export function TerminalPane({ agents, connectedAgents, workingDirectory, active
       void startSession(created.id, false);
     } catch (error) {
       setAddError(String(error));
+    } finally {
+      setRegistering(false);
     }
+  }
+
+  async function refreshAgents() {
+    setCheckingAgents(true);
+    setAddError(null);
+    try {
+      const detected = await detectInstalledAgents();
+      window.dispatchEvent(new CustomEvent(AGENTS_CHANGED_EVENT, { detail: detected }));
+    } catch (error) { setAddError(String(error)); }
+    finally { setCheckingAgents(false); }
+  }
+
+  async function chooseExecutable() {
+    try {
+      const { open } = await import("@tauri-apps/plugin-dialog");
+      const path = await open({ title: "Selecionar executável da CLI", multiple: false, directory: false });
+      if (typeof path === "string") setCustomExecutable(path);
+    } catch (error) { setAddError(String(error)); }
   }
 
   function unhideAgent(agentId: string) {
@@ -195,7 +248,7 @@ export function TerminalPane({ agents, connectedAgents, workingDirectory, active
   /** Fecha a aba do agente: encerra a sessão em andamento (quando é a
       aba ativa) e some com a aba — sem apagar histórico algum. */
   async function closeAgentTab(agentId: string) {
-    if (agentId === activeAgent && status === "running") await stopSession();
+    if (agentId === activeAgent && status === "running" && !await stopSession()) return;
     setHiddenAgents((current) => new Set(current).add(agentId));
   }
 
@@ -228,7 +281,7 @@ export function TerminalPane({ agents, connectedAgents, workingDirectory, active
             disabled={unavailableHere || !canSwitchAgent}
             className={agent.id === activeAgent ? "agent-tab agent-tab--active" : "agent-tab"}
             title={unavailableHere ? `${agent.executable} não está instalado nesta máquina` : agent.executable}
-            onClick={() => setActiveAgent(agent.id)}
+            onClick={() => openConnected(agent.id)}
           >{agent.label}{agent.running ? <span className="agent-tab-dot" aria-label="sessão em andamento" /> : null}{unavailableHere ? <small>ausente</small> : null}</button>
           <button
             className="agent-tab-close"
@@ -247,15 +300,19 @@ export function TerminalPane({ agents, connectedAgents, workingDirectory, active
         {pickerOpen && pickerPos ? <div className="agent-picker" style={{ position: "fixed", top: pickerPos.top, left: pickerPos.left, right: "auto" }} role="dialog" aria-label="Conectar agente">
           {agents.length > 0 ? <><p className="agent-picker-heading">Instalados nesta máquina — clique para abrir</p>{agents.map((agent) => {
             const connected = connectedAgents.some((item) => item.id === agent.id);
-            return <button className="agent-picker-row" key={agent.id} onClick={() => (connected ? openConnected(agent.id) : connectInstalled(agent.id))}>
-              <span><strong>{agent.label}</strong><small>{agent.version ?? "versão desconhecida"}</small></span><span className="agent-picker-action">{connected ? "Abrir" : "Conectar"}</span>
+            return <button className="agent-picker-row" key={agent.id} aria-label={`${connected ? "Abrir" : "Conectar"} ${agent.label}`} disabled={busy && agent.id !== activeAgent} title={agent.path ? displayPath(agent.path) : agent.executable} onClick={() => (connected ? openConnected(agent.id) : connectInstalled(agent.id))}>
+              <span><strong>{agent.label}</strong><small>{agent.version ?? "Versão não identificada"}</small>{agent.path ? <small className="agent-picker-path">{displayPath(agent.path)}</small> : null}{agent.error ? <small className="agent-picker-error">{agent.error}</small> : null}</span><span className="agent-picker-action">{connected ? "Abrir" : "Conectar"}</span>
             </button>;
           })}</> : null}
+          <button className="secondary-button" disabled={checkingAgents} onClick={() => void refreshAgents()}>{checkingAgents ? "Verificando agentes…" : "Verificar agentes novamente"}</button>
+          <p className="agent-picker-help">Não encontrou sua CLI? Selecione o executável abaixo. O aplicativo de desktop e a versão CLI podem ter instalações diferentes.</p>
           <p className="agent-picker-heading">Qualquer executável</p>
+          <p className="agent-picker-help">Informe só o executável, sem parâmetros. Exemplos: agy (Antigravity CLI), claude ou o caminho completo do programa.</p>
           <label className="agent-picker-field"><span>Nome</span><input value={customLabel} onChange={(event) => setCustomLabel(event.target.value)} placeholder="Minha CLI" aria-label="Nome do agente" /></label>
           <label className="agent-picker-field"><span>Comando</span><input value={customExecutable} onChange={(event) => setCustomExecutable(event.target.value)} placeholder="mycli" aria-label="Comando executável do agente" onKeyDown={(event) => { if (event.key === "Enter") { event.preventDefault(); void registerCustom(); } }} /></label>
+          <button className="secondary-button" onClick={() => void chooseExecutable()}>Selecionar executável…</button>
           {addError ? <p className="agent-picker-error" role="alert">{addError}</p> : null}
-          <button className="primary-button" onClick={() => void registerCustom()} disabled={!customLabel.trim() || !customExecutable.trim()}>Adicionar e conectar</button>
+          <button className="primary-button" onClick={() => void registerCustom()} disabled={busy || registering || !customLabel.trim() || !customExecutable.trim()}>{registering ? "Adicionando…" : "Adicionar e conectar"}</button>
         </div> : null}
       </div> : null}
       {native && visibleConnected.length === 0 ? <span className="agent-tabs-empty">Nenhum agente conectado — clique em <strong>Escolha seu agente</strong> para começar.</span> : null}
@@ -268,6 +325,7 @@ export function TerminalPane({ agents, connectedAgents, workingDirectory, active
           : null
         : null}
     </div>
+    {launchError ? <div className="terminal-launch-error" role="alert"><strong>Não foi possível concluir a conexão.</strong><p>{launchError}</p><span>Confira o caminho em Escolha seu agente. A tentativa pode ser consultada no Histórico.</span></div> : null}
     <section className="terminal" aria-label="Terminal">
       <div ref={hostRef} className={native ? "xterm-host" : "xterm-host xterm-host--hidden"} />
       {!native ? <div className="terminal-lines">{terminalLines.map((line, index) => <p className={`terminal-line terminal-line--${line.kind}`} key={`${line.text}-${index}`}>{line.text}</p>)}</div> : null}

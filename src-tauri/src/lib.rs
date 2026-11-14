@@ -1,4 +1,5 @@
 mod agents;
+pub mod agent_process;
 mod context;
 mod handoff;
 mod history;
@@ -58,6 +59,8 @@ pub fn run() {
             workspace::set_project_task_completed,
             workspace::get_git_status,
             handoff::prepare_handoff,
+            handoff::read_handoff_context,
+            handoff::open_handoff_folder,
             history::get_terminal_session_events,
             history::export_terminal_session,
             context::get_project_context,
