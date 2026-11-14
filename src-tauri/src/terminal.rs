@@ -11,7 +11,7 @@ use std::{
     sync::Mutex,
     thread,
 };
-use tauri::{AppHandle, Emitter, State};
+use tauri::{AppHandle, Emitter, Manager, State};
 use uuid::Uuid;
 
 pub struct TerminalSession {
