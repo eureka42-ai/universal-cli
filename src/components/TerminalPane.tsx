@@ -3,6 +3,7 @@ import type { Terminal } from "@xterm/xterm";
 import { terminalLines, type Agent } from "../data/workspace";
 import { addCustomAgent, detectInstalledAgents, type ConnectedAgent } from "../services/agents";
 import { displayPath } from "../data/presentation";
+import { ToolIcon } from "./ToolIcon";
 import { closeTerminal, isTauriRuntime, launchTerminal, listenToTerminal, resizeTerminal, sendTerminalInput } from "../services/terminal";
 import { OrchestratorBar, type OrchestratorBarHandle } from "./OrchestratorBar";
 import "@xterm/xterm/css/xterm.css";
@@ -257,7 +258,7 @@ export function TerminalPane({ agents, connectedAgents, workingDirectory, active
     if (rect) {
       // Posição fixa: a barra de abas tem overflow-x e cortaria qualquer
       // dropdown posicionado dentro dela.
-      const left = Math.min(rect.left, window.innerWidth - 306);
+      const left = Math.min(rect.left, window.innerWidth - 356);
       setPickerPos({ top: rect.bottom + 8, left: Math.max(8, left) });
     }
     setAddError(null);
@@ -327,6 +328,7 @@ export function TerminalPane({ agents, connectedAgents, workingDirectory, active
     </div>
     {launchError ? <div className="terminal-launch-error" role="alert"><strong>Não foi possível concluir a conexão.</strong><p>{launchError}</p><span>Confira o caminho em Escolha seu agente. A tentativa pode ser consultada no Histórico.</span></div> : null}
     <section className="terminal" aria-label="Terminal">
+      {native && status === "idle" ? <div className="terminal-welcome"><div className="terminal-welcome-mark"><ToolIcon name="Terminal" size={28} /></div><span className="eyebrow">SEU ESPAÇO DE TRABALHO</span><h2>Um projeto. Qualquer agente.</h2><p>Abra sua CLI favorita e continue criando. O Eureka42 organiza o histórico e a memória deste projeto.</p><button className="primary-button" onClick={openPicker} disabled={!workingDirectory}>Escolher agente <span aria-hidden="true">↗</span></button><div className="terminal-welcome-features"><span><ToolIcon name="Histórico" size={15} /> Histórico local</span><span><ToolIcon name="Memória" size={15} /> Memória do projeto</span><span><ToolIcon name="Git" size={15} /> Contexto portátil</span></div></div> : null}
       <div ref={hostRef} className={native ? "xterm-host" : "xterm-host xterm-host--hidden"} />
       {!native ? <div className="terminal-lines">{terminalLines.map((line, index) => <p className={`terminal-line terminal-line--${line.kind}`} key={`${line.text}-${index}`}>{line.text}</p>)}</div> : null}
       {native ? <div className="terminal-footer">

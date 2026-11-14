@@ -3,6 +3,18 @@
 //! shell strings in the PTY layer. A console sidecar inherits ConPTY handles.
 use std::{path::Path, process::Command};
 
+/// cmd.exe rejects verbatim (\\?\) paths as a current directory. SQLite keeps
+/// canonical paths, while child processes receive the ordinary Win32 form.
+pub(crate) fn working_directory(path: &Path) -> std::path::PathBuf {
+    #[cfg(windows)]
+    {
+        let value = path.as_os_str().to_string_lossy();
+        if let Some(rest) = value.strip_prefix(r"\\?\UNC\") { return std::path::PathBuf::from(format!(r"\\{}", rest)); }
+        if let Some(rest) = value.strip_prefix(r"\\?\") { return std::path::PathBuf::from(rest); }
+    }
+    path.to_path_buf()
+}
+
 pub(crate) const LAUNCHER_FLAG: &str = "--eureka42-internal-agent";
 
 pub(crate) fn command(executable: &Path) -> Command {
@@ -61,10 +73,11 @@ mod tests {
         let cwd = directory.path().join("pasta com espaços & ação");
         std::fs::create_dir(&cwd).unwrap();
         let script = cwd.join("agente de teste.cmd");
-        std::fs::write(&script, "@echo off\r\necho EUREKA_BATCH_OK\r\nexit /b 0\r\n").unwrap();
+        std::fs::write(&script, "@echo off\r\nif not exist cwd-marker.txt exit /b 7\r\necho EUREKA_BATCH_OK\r\nexit /b 0\r\n").unwrap();
+        std::fs::write(cwd.join("cwd-marker.txt"), "cwd fixture").unwrap();
         let pair = portable_pty::native_pty_system().openpty(portable_pty::PtySize { rows: 24, cols: 80, pixel_width: 0, pixel_height: 0 }).unwrap();
         let mut command = pty_command(&script).unwrap();
-        command.cwd(&cwd);
+        command.cwd(working_directory(&cwd.canonicalize().unwrap()));
         let mut child = pair.slave.spawn_command(command).unwrap();
         drop(pair.slave);
         let mut reader = pair.master.try_clone_reader().unwrap();

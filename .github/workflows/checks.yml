@@ -47,6 +47,14 @@ jobs:
           Copy-Item -LiteralPath src-tauri/target/debug/universal-ai-cli.exe -Destination qa/development/Eureka42-QA-dev.exe
           Copy-Item -LiteralPath src-tauri/binaries/eureka42-agent-runner-x86_64-pc-windows-msvc.exe -Destination qa/development/eureka42-agent-runner.exe
           Get-ChildItem src-tauri/target/debug -Filter '*.dll' | Copy-Item -Destination qa/development
+      - name: Build Windows installer for QA
+        if: runner.os == 'Windows'
+        run: |
+          '{"bundle":{"createUpdaterArtifacts":false}}' | Set-Content qa/bundle-config.json
+          npm run tauri -- build --debug --bundles nsis --config qa/bundle-config.json
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          New-Item -ItemType Directory -Force qa/installer | Out-Null
+          Get-ChildItem src-tauri/target/debug/bundle/nsis -Filter '*.exe' | Copy-Item -Destination qa/installer
       - uses: actions/upload-artifact@v4
         if: runner.os == 'Windows'
         with:

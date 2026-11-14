@@ -1,3 +1,4 @@
+import { modifierLabel } from "../data/presentation";
 import { forwardRef, useImperativeHandle, useRef, useState } from "react";
 import type { Agent } from "../data/workspace";
 
@@ -110,7 +111,7 @@ export const OrchestratorBar = forwardRef<OrchestratorBarHandle, Props>(function
         value={value}
         onChange={(event) => { setValue(event.target.value); setHighlight(0); }}
         onKeyDown={onKeyDown}
-        placeholder="agente <id> · retomar · ajuda — (⌘K/Ctrl+K)"
+        placeholder={`agente <id> · retomar · ajuda — (${modifierLabel}+K)`}
         aria-label="Comando do orquestrador"
         autoComplete="off"
       />

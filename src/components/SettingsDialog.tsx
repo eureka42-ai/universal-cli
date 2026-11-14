@@ -2,13 +2,17 @@ import { useEffect, useState } from "react";
 import { getAppSettings, updateAppSettings, type AppSettings, type ThemePreference } from "../services/settings";
 import { connectCloud, disconnectCloud, getCloudStatus, setCloudPassphrase, testCloudConnection, type CloudStatus } from "../services/sync";
 import { isTauriRuntime } from "../services/terminal";
+import { StorageInfo } from "./StorageInfo";
+import { modifierLabel } from "../data/presentation";
 
-const defaults: AppSettings = { captureTerminalEvents: true, retentionDays: 90, theme: "dark", cloudSyncEnabled: false, contextCarryoverEnabled: true, cloudProvider: "", googleClientId: "", onedriveClientId: "", cloudAccount: "" };
+export type SettingsSection = "account" | "privacy" | "general" | "cloud";
+
+const defaults: AppSettings = { captureTerminalEvents: true, retentionDays: 90, theme: "system", cloudSyncEnabled: false, contextCarryoverEnabled: true, cloudProvider: "", googleClientId: "", onedriveClientId: "", cloudAccount: "" };
 
 const SHORTCUTS: Array<{ keys: string; description: string }> = [
-  { keys: "⌘/Ctrl + K", description: "Focar o comando do orquestrador (///agente, ///retomar) no terminal ativo" },
-  { keys: "⌘/Ctrl + N", description: "Abrir um novo terminal (até 6 por projeto)" },
-  { keys: "⌘/Ctrl + ,", description: "Abrir Configurações" },
+  { keys: `${modifierLabel} + K`, description: "Focar os comandos do aplicativo no terminal ativo" },
+  { keys: `${modifierLabel} + N`, description: "Abrir um novo terminal (até 6 por projeto)" },
+  { keys: `${modifierLabel} + ,`, description: "Abrir Configurações" },
   { keys: "Esc", description: "Fechar a janela em foco (Configurações, Transferir contexto, detalhes de sessão)" }
 ];
 
@@ -17,7 +21,7 @@ const PROVIDERS = [
   { id: "onedrive", label: "OneDrive" }
 ] as const;
 
-export function SettingsDialog({ open, onClose, onSettingsSaved }: { open: boolean; onClose(): void; onSettingsSaved?(settings: AppSettings): void }) {
+export function SettingsDialog({ open, onClose, onSettingsSaved, initialSection = "account" }: { open: boolean; initialSection?: SettingsSection; onClose(): void; onSettingsSaved?(settings: AppSettings): void }) {
   const [settings, setSettings] = useState(defaults);
   const [section, setSection] = useState<"account" | "privacy" | "general" | "cloud">("account");
   const [status, setStatus] = useState<"idle" | "loading" | "saving" | "saved" | "error">("idle");
@@ -27,6 +31,8 @@ export function SettingsDialog({ open, onClose, onSettingsSaved }: { open: boole
   const [credentialStatus, setCredentialStatus] = useState("");
   const [connectionStatus, setConnectionStatus] = useState("");
   const [oauthBusy, setOauthBusy] = useState(false);
+
+  useEffect(() => { if (open) setSection(initialSection); }, [open, initialSection]);
 
   useEffect(() => {
     if (!open || !isTauriRuntime()) return;
@@ -124,7 +130,7 @@ export function SettingsDialog({ open, onClose, onSettingsSaved }: { open: boole
           {section === "account" ? <>
             <div className="local-profile"><div className="profile-mark">L</div><div><strong>Modo local</strong><p>Nenhuma conta é necessária. Seus agentes e dados permanecem neste computador.</p></div><span>ATIVO</span></div>
             <div className="settings-card"><div><strong>Continuar em outro computador</strong><p>Memória, tarefas, contexto, histórico e arquivos do projeto podem sincronizar pela sua própria nuvem — Google Drive ou OneDrive. Mesma conta em outra máquina = mesmo trabalho, sem servidor nosso.</p></div><button className="secondary-button" onClick={() => setSection("cloud")}>Configurar nuvem</button></div>
-            <p className="settings-note">O código continua sendo sincronizado pelo seu provedor Git. Credenciais dos agentes nunca são tocadas pelo Eureka42.</p>
+            <StorageInfo /><p className="settings-note">O código continua sendo sincronizado pelo seu provedor Git. Credenciais dos agentes nunca são tocadas pelo Eureka42.</p>
           </> : null}
           {section === "privacy" ? <>
             <h3>Contexto entre conversas</h3>

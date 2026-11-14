@@ -163,7 +163,7 @@ impl ProjectRepository {
                id INTEGER PRIMARY KEY CHECK (id=1),
                capture_terminal_events INTEGER NOT NULL DEFAULT 1,
                retention_days INTEGER NOT NULL DEFAULT 90,
-               theme TEXT NOT NULL DEFAULT 'dark',
+               theme TEXT NOT NULL DEFAULT 'system',
                cloud_sync_enabled INTEGER NOT NULL DEFAULT 0
              );
              INSERT OR IGNORE INTO app_settings(id) VALUES(1);",
@@ -171,7 +171,7 @@ impl ProjectRepository {
         // SQLite não suporta `ADD COLUMN IF NOT EXISTS`; ignoramos o erro
         // "duplicate column name" quando a coluna já existe.
         ensure_column(&connection, "terminal_sessions", "resumed", "INTEGER NOT NULL DEFAULT 0")?;
-        ensure_column(&connection, "app_settings", "theme", "TEXT NOT NULL DEFAULT 'dark'")?;
+        ensure_column(&connection, "app_settings", "theme", "TEXT NOT NULL DEFAULT 'system'")?;
         ensure_column(&connection, "app_settings", "cloud_sync_enabled", "INTEGER NOT NULL DEFAULT 0")?;
         ensure_column(&connection, "projects", "cloud_sync_id", "TEXT")?;
         ensure_column(&connection, "projects", "last_synced_at", "INTEGER NOT NULL DEFAULT 0")?;
@@ -1034,7 +1034,7 @@ mod tests {
         let (_directory, repository) = repository();
         let initial = read_app_settings(&repository).unwrap();
         assert!(initial.capture_terminal_events);
-        assert_eq!(initial.theme, "dark");
+        assert_eq!(initial.theme, "system");
         assert!(!initial.cloud_sync_enabled);
         // Contexto entre conversas vem ligado por padrão (promessa central
         // do produto); usuário pode desligar explicitamente.

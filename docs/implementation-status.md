@@ -194,3 +194,9 @@ History reading, copy and event pagination implemented; **20 frontend tests and 
 ### Windows batch runner (real process probe)
 
 A standalone Rust console sidecar replaces the GUI-process bridge. Its real ConPTY test passed locally with spaces, `&` and Unicode paths, expected output and successful exit. The Tauri bundle now includes the sidecar and CI QA artifacts copy it alongside the executable. A batch/PTY integration regression is added; full native checks pending for this change.
+
+### 2026-11-14 — visual e versão 0.2.0
+
+Interface alinhada ao site eureka42.org: branco/verde, navegação com ícones, boas-vindas, caminhos de armazenamento reais. Sistema passa a ser o tema padrão; Claro/Escuro permanecem disponíveis. Manifests e Sobre identificam 0.2.0.
+
+CI 0d8f277 passou em Windows/macOS/Linux, incluindo compilação de executáveis Windows. Teste GUI real abriu Gemini 0.68.0 em ConPTY. Encontrado novo defeito: CMD rejeita cwd canônico verbatim e cai em Windows. Reproduzido localmente exigindo arquivo exclusivo do projeto; correção usa forma Win32 no processo e preserva caminho canônico no banco. Mesmo teste passou após correção. Conversa e autenticação do provedor não foram automatizadas.

@@ -117,7 +117,7 @@ pub fn launch_terminal(
             command.args([flag, markdown.as_str()]);
         }
     }
-    command.cwd(&cwd);
+    command.cwd(crate::agent_process::working_directory(&cwd));
     command.env("TERM", "xterm-256color");
     command.env("COLORTERM", "truecolor");
     let mut child = pair
