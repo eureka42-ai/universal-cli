@@ -31,12 +31,23 @@ jobs:
       - run: cargo test --locked --manifest-path src-tauri/Cargo.toml --no-fail-fast
       - name: Build Windows executable for manual QA
         if: runner.os == 'Windows'
-        run: cargo build --locked --manifest-path src-tauri/Cargo.toml --features custom-protocol
+        run: |
+          cargo build --locked --manifest-path src-tauri/Cargo.toml --features custom-protocol
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          New-Item -ItemType Directory -Force qa/standalone | Out-Null
+          Copy-Item -LiteralPath src-tauri/target/debug/universal-ai-cli.exe -Destination qa/standalone/Eureka42-QA.exe
+          Get-ChildItem src-tauri/target/debug -Filter '*.dll' | Copy-Item -Destination qa/standalone
+      - name: Build Windows development executable for live UI QA
+        if: runner.os == 'Windows'
+        run: |
+          cargo build --locked --manifest-path src-tauri/Cargo.toml
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          New-Item -ItemType Directory -Force qa/development | Out-Null
+          Copy-Item -LiteralPath src-tauri/target/debug/universal-ai-cli.exe -Destination qa/development/Eureka42-QA-dev.exe
+          Get-ChildItem src-tauri/target/debug -Filter '*.dll' | Copy-Item -Destination qa/development
       - uses: actions/upload-artifact@v4
         if: runner.os == 'Windows'
         with:
           name: eureka42-windows-qa
-          path: |
-            src-tauri/target/debug/universal-ai-cli.exe
-            src-tauri/target/debug/*.dll
+          path: qa/
           if-no-files-found: error
