@@ -224,3 +224,17 @@ Antigravity: o executável CLI não estava instalado nas pastas oficiais. Binár
 ### Conclusão da inspeção visual compacta
 
 A matriz de histórico com sessão longa passou em 1280×768 e 900×600, claro e escuro: painel/rodapé dentro da janela, busca com realce, controles de cursor consolidados, registro completo preservado e Esc retornando à lista. Primeiro ensaio revelou regra legada que escondia o nome da sessão em 900px; corrigida por seletor específico e reensaio aprovado nos quatro casos. Contexto gerado passa a identificar Eureka42 e horários UTC explicitamente. CI de 1dbd6cb passou Windows/macOS/Linux.
+
+### 2026-11-15 — fechamento de QA 0.2.0
+
+Código empacotado: 1b00ef4. Checks 43658677350: **33 testes frontend**, build aprovado; **40 testes Rust Windows**, **36 Linux**, **36 macOS**, sem falhas. Pacotes 43658677300: NSIS/MSI Windows x64, DEB e AppImage Linux x64 separados, APP/ZIP e DMG macOS ARM64. DMG aprovado por hdiutil verify.
+
+DEB e AppImage foram extraídos e abertos em Xvfb; processo e janela permaneceram ativos após a primeira renderização. Capturas dos dois formatos inspecionadas: seleção inicial com versão 0.2.0. Isso é teste de abertura em ambiente virtual, não conversa autenticada nem teste completo de um desktop Linux físico.
+
+Pacotes recebidos conferidos contra digests SHA-256 do GitHub; seis arquivos finais têm manifesto e SHA256SUMS. Cópia Windows otimizada, extraída do NSIS verificado, pronta no perfil do usuário com atalho Eureka42 0.2.0. Abertura e recuperação de dados anteriores confirmadas; deixada na seleção inicial de idioma/tema, Sistema selecionado. Instalação administrativa antiga 0.1.0 foi preservada.
+
+Leitor atualizado exercitado com bytes originais de sessão real após reinício: títulos OSC não vazam para a leitura, caracteres e layout do terminal preservados. Exportações TXT/JSON/Markdown e cópia exercitadas; memória/contexto e tarefa com acentos/japonês persistidos; pacote de transferência mostrou conteúdo verificável.
+
+Pendências explícitas: respostas autenticadas de todos os provedores, sincronização Drive/OneDrive entre duas máquinas, interação gráfica macOS, Mac Intel, notarização e atualização automática por release. Instruções avançadas ainda usam fallback inglês. O agy 1.5.9 foi detectado e abriu até configuração inicial; login não foi automatizado.
+
+Relatório detalhado e pacotes entregues em outputs/v0.2.0 no workspace da tarefa. Capturas de histórico usam fixtures; capturas Linux vêm dos binários na CI. Nenhuma captura de histórico pessoal foi adicionada ao repositório.
