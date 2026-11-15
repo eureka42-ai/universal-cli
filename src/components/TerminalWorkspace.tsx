@@ -1,3 +1,4 @@
+import { t } from "../i18n";
 import { useEffect, useState } from "react";
 import type { Agent } from "../data/workspace";
 import type { ConnectedAgent } from "../services/agents";
@@ -29,5 +30,5 @@ export function TerminalWorkspace({ agents, connectedAgents, workingDirectory, a
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
   }, [active]);
-  return <section className={active ? "terminal-stack" : "terminal-stack terminal-stack--inactive"} aria-hidden={!active}><nav className="terminal-tabs" aria-label="Terminais">{tabs.map((tab) => <div className={tab.id === selected ? "terminal-tab terminal-tab--active" : "terminal-tab"} key={tab.id}><button onClick={() => setSelected(tab.id)}>{tab.label}</button>{tabs.length > 1 ? <button aria-label={`Fechar ${tab.label}`} onClick={() => closeTab(tab.id)}>×</button> : null}</div>)}<button className="terminal-tab-add" onClick={addTab} disabled={tabs.length >= 6} aria-label="Novo terminal">＋</button></nav><div className="terminal-tab-content">{tabs.map((tab) => <TerminalPane key={tab.id} agents={agents} connectedAgents={connectedAgents} workingDirectory={workingDirectory} active={active && tab.id === selected} onAgentStarted={onAgentStarted} />)}</div></section>;
+  return <section className={active ? "terminal-stack" : "terminal-stack terminal-stack--inactive"} aria-hidden={!active}><nav className="terminal-tabs" aria-label={t("Terminais")}>{tabs.map((tab) => <div className={tab.id === selected ? "terminal-tab terminal-tab--active" : "terminal-tab"} key={tab.id}><button onClick={() => setSelected(tab.id)}>{tab.label}</button>{tabs.length > 1 ? <button aria-label={t("Fechar {0}", {0: tab.label})} onClick={() => closeTab(tab.id)}>{t("×")}</button> : null}</div>)}<button className="terminal-tab-add" onClick={addTab} disabled={tabs.length >= 6} aria-label={t("Novo terminal")}>＋</button></nav><div className="terminal-tab-content">{tabs.map((tab) => <TerminalPane key={tab.id} agents={agents} connectedAgents={connectedAgents} workingDirectory={workingDirectory} active={active && tab.id === selected} onAgentStarted={onAgentStarted} />)}</div></section>;
 }

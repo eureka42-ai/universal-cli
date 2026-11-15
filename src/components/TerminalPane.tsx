@@ -1,3 +1,4 @@
+import { t } from "../i18n";
 import { useEffect, useRef, useState } from "react";
 import type { Terminal } from "@xterm/xterm";
 import { terminalLines, type Agent } from "../data/workspace";
@@ -271,7 +272,7 @@ export function TerminalPane({ agents, connectedAgents, workingDirectory, active
   }
 
   return <main className={active ? "workspace" : "workspace workspace--inactive"} aria-hidden={!active}>
-    <div className="agent-tabs" role="tablist" aria-label="Agentes conectados">
+    <div className="agent-tabs" role="tablist" aria-label={t("Agentes conectados")}>
       {visibleConnected.map((agent) => {
         const installed = agents.find((candidate) => candidate.id === agent.id);
         const unavailableHere = !installed;
@@ -281,60 +282,58 @@ export function TerminalPane({ agents, connectedAgents, workingDirectory, active
             aria-selected={agent.id === activeAgent}
             disabled={unavailableHere || !canSwitchAgent}
             className={agent.id === activeAgent ? "agent-tab agent-tab--active" : "agent-tab"}
-            title={unavailableHere ? `${agent.executable} não está instalado nesta máquina` : agent.executable}
+            title={unavailableHere ? t("{0} não está instalado nesta máquina", {0: agent.executable}) : agent.executable}
             onClick={() => openConnected(agent.id)}
-          >{agent.label}{agent.running ? <span className="agent-tab-dot" aria-label="sessão em andamento" /> : null}{unavailableHere ? <small>ausente</small> : null}</button>
+          >{agent.label}{agent.running ? <span className="agent-tab-dot" aria-label={t("sessão em andamento")} /> : null}{unavailableHere ? <small>{t("ausente")}</small> : null}</button>
           <button
             className="agent-tab-close"
-            aria-label={`Fechar aba de ${agent.label}`}
-            title={agent.id === activeAgent && status === "running" ? `Encerrar sessão de ${agent.label} e fechar a aba` : `Fechar aba de ${agent.label}`}
+            aria-label={t("Fechar aba de {0}", {0: agent.label})}
+            title={agent.id === activeAgent && status === "running" ? t("Encerrar sessão de {0} e fechar a aba", {0: agent.label}) : t("Fechar aba de {0}", {0: agent.label})}
             disabled={agent.id === activeAgent && status === "starting"}
             onClick={() => void closeAgentTab(agent.id)}
           ><svg width="10" height="10" viewBox="0 0 10 10" aria-hidden="true"><path d="M1.5 1.5l7 7M8.5 1.5l-7 7" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" /></svg></button>
         </div>;
       })}
       {native ? <div className="agent-add">
-        <button ref={addButtonRef} className="agent-add-button" onClick={() => (pickerOpen ? closePicker() : openPicker())} aria-expanded={pickerOpen} disabled={status === "starting"} title={busy ? "Encerre a sessão atual antes de conectar outro agente" : "Escolha um agente para conectar"}>
-          <svg width="11" height="11" viewBox="0 0 11 11" aria-hidden="true"><path d="M5.5 1v9M1 5.5h9" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" /></svg>
-          Escolha seu agente
-        </button>
-        {pickerOpen && pickerPos ? <div className="agent-picker" style={{ position: "fixed", top: pickerPos.top, left: pickerPos.left, right: "auto" }} role="dialog" aria-label="Conectar agente">
-          {agents.length > 0 ? <><p className="agent-picker-heading">Instalados nesta máquina — clique para abrir</p>{agents.map((agent) => {
+        <button ref={addButtonRef} className="agent-add-button" onClick={() => (pickerOpen ? closePicker() : openPicker())} aria-expanded={pickerOpen} disabled={status === "starting"} title={busy ? t("Encerre a sessão atual antes de conectar outro agente") : t("Escolha um agente para conectar")}>
+          <svg width="11" height="11" viewBox="0 0 11 11" aria-hidden="true"><path d="M5.5 1v9M1 5.5h9" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" /></svg>{t("Escolha seu agente")}</button>
+        {pickerOpen && pickerPos ? <div className="agent-picker" style={{ position: "fixed", top: pickerPos.top, left: pickerPos.left, right: "auto" }} role="dialog" aria-label={t("Conectar agente")}>
+          {agents.length > 0 ? <><p className="agent-picker-heading">{t("Instalados nesta máquina — clique para abrir")}</p>{agents.map((agent) => {
             const connected = connectedAgents.some((item) => item.id === agent.id);
             return <button className="agent-picker-row" key={agent.id} aria-label={`${connected ? "Abrir" : "Conectar"} ${agent.label}`} disabled={busy && agent.id !== activeAgent} title={agent.path ? displayPath(agent.path) : agent.executable} onClick={() => (connected ? openConnected(agent.id) : connectInstalled(agent.id))}>
-              <span><strong>{agent.label}</strong><small>{agent.version ?? "Versão não identificada"}</small>{agent.path ? <small className="agent-picker-path">{displayPath(agent.path)}</small> : null}{agent.error ? <small className="agent-picker-error">{agent.error}</small> : null}</span><span className="agent-picker-action">{connected ? "Abrir" : "Conectar"}</span>
+              <span><strong>{agent.label}</strong><small>{agent.version ?? "Versão não identificada"}</small>{agent.path ? <small className="agent-picker-path">{displayPath(agent.path)}</small> : null}{agent.error ? <small className="agent-picker-error">{agent.error}</small> : null}</span><span className="agent-picker-action">{connected ? t("Abrir") : t("Conectar")}</span>
             </button>;
           })}</> : null}
-          <button className="secondary-button" disabled={checkingAgents} onClick={() => void refreshAgents()}>{checkingAgents ? "Verificando agentes…" : "Verificar agentes novamente"}</button>
-          <p className="agent-picker-help">Não encontrou sua CLI? Selecione o executável abaixo. O aplicativo de desktop e a versão CLI podem ter instalações diferentes.</p>
-          <p className="agent-picker-heading">Qualquer executável</p>
-          <p className="agent-picker-help">Informe só o executável, sem parâmetros. Exemplos: agy (Antigravity CLI), claude ou o caminho completo do programa.</p>
-          <label className="agent-picker-field"><span>Nome</span><input value={customLabel} onChange={(event) => setCustomLabel(event.target.value)} placeholder="Minha CLI" aria-label="Nome do agente" /></label>
-          <label className="agent-picker-field"><span>Comando</span><input value={customExecutable} onChange={(event) => setCustomExecutable(event.target.value)} placeholder="mycli" aria-label="Comando executável do agente" onKeyDown={(event) => { if (event.key === "Enter") { event.preventDefault(); void registerCustom(); } }} /></label>
-          <button className="secondary-button" onClick={() => void chooseExecutable()}>Selecionar executável…</button>
+          <button className="secondary-button" disabled={checkingAgents} onClick={() => void refreshAgents()}>{checkingAgents ? t("Verificando agentes…") : t("Verificar agentes novamente")}</button>
+          <p className="agent-picker-help">{t("Não encontrou sua CLI? Selecione o executável abaixo. O aplicativo de desktop e a versão CLI podem ter instalações diferentes.")}</p>
+          <p className="agent-picker-heading">{t("Qualquer executável")}</p>
+          <p className="agent-picker-help">{t("Informe só o executável, sem parâmetros. Exemplos: agy (Antigravity CLI), claude ou o caminho completo do programa.")}</p>
+          <label className="agent-picker-field"><span>{t("Nome")}</span><input value={customLabel} onChange={(event) => setCustomLabel(event.target.value)} placeholder={t("Minha CLI")} aria-label={t("Nome do agente")} /></label>
+          <label className="agent-picker-field"><span>{t("Comando")}</span><input value={customExecutable} onChange={(event) => setCustomExecutable(event.target.value)} placeholder={t("mycli")} aria-label={t("Comando executável do agente")} onKeyDown={(event) => { if (event.key === "Enter") { event.preventDefault(); void registerCustom(); } }} /></label>
+          <button className="secondary-button" onClick={() => void chooseExecutable()}>{t("Selecionar executável…")}</button>
           {addError ? <p className="agent-picker-error" role="alert">{addError}</p> : null}
-          <button className="primary-button" onClick={() => void registerCustom()} disabled={busy || registering || !customLabel.trim() || !customExecutable.trim()}>{registering ? "Adicionando…" : "Adicionar e conectar"}</button>
+          <button className="primary-button" onClick={() => void registerCustom()} disabled={busy || registering || !customLabel.trim() || !customExecutable.trim()}>{registering ? t("Adicionando…") : t("Adicionar e conectar")}</button>
         </div> : null}
       </div> : null}
-      {native && visibleConnected.length === 0 ? <span className="agent-tabs-empty">Nenhum agente conectado — clique em <strong>Escolha seu agente</strong> para começar.</span> : null}
+      {native && visibleConnected.length === 0 ? <span className="agent-tabs-empty">{t("Nenhum agente conectado — clique em ")}<strong>{t("Escolha seu agente")}</strong>{t(" para começar.")}</span> : null}
       {native ? status === "running"
-        ? <button className="start-session start-session--stop" onClick={stopSession}>Encerrar sessão</button>
+        ? <button className="start-session start-session--stop" onClick={stopSession}>{t("Encerrar sessão")}</button>
         : activeAgent
           ? <div className="start-session-group">
-              <button className="start-session" onClick={() => startSession(activeAgent, false)} disabled={!workingDirectory || status === "starting"}>{status === "starting" ? "Conectando…" : "Nova sessão"}</button>
+              <button className="start-session" onClick={() => startSession(activeAgent, false)} disabled={!workingDirectory || status === "starting"}>{status === "starting" ? t("Conectando…") : t("Nova sessão")}</button>
             </div>
           : null
         : null}
     </div>
-    {launchError ? <div className="terminal-launch-error" role="alert"><strong>Não foi possível concluir a conexão.</strong><p>{launchError}</p><span>Confira o caminho em Escolha seu agente. A tentativa pode ser consultada no Histórico.</span></div> : null}
-    <section className="terminal" aria-label="Terminal">
-      {native && status === "idle" ? <div className="terminal-welcome"><div className="terminal-welcome-mark"><ToolIcon name="Terminal" size={28} /></div><span className="eyebrow">SEU ESPAÇO DE TRABALHO</span><h2>Um projeto. Qualquer agente.</h2><p>Abra sua CLI favorita e continue criando. O Eureka42 organiza o histórico e a memória deste projeto.</p><button className="primary-button" onClick={openPicker} disabled={!workingDirectory}>Escolher agente <span aria-hidden="true">↗</span></button><div className="terminal-welcome-features"><span><ToolIcon name="Histórico" size={15} /> Histórico local</span><span><ToolIcon name="Memória" size={15} /> Memória do projeto</span><span><ToolIcon name="Git" size={15} /> Contexto portátil</span></div></div> : null}
+    {launchError ? <div className="terminal-launch-error" role="alert"><strong>{t("Não foi possível concluir a conexão.")}</strong><p>{launchError}</p><span>{t("Confira o caminho em Escolha seu agente. A tentativa pode ser consultada no Histórico.")}</span></div> : null}
+    <section className="terminal" aria-label={t("Terminal")}>
+      {native && status === "idle" ? <div className="terminal-welcome"><div className="terminal-welcome-mark"><ToolIcon name="Terminal" size={28} /></div><span className="eyebrow">{t("SEU ESPAÇO DE TRABALHO")}</span><h2>{t("Um projeto. Qualquer agente.")}</h2><p>{t("Abra sua CLI favorita e continue criando. O Eureka42 organiza o histórico e a memória deste projeto.")}</p><button className="primary-button" onClick={openPicker} disabled={!workingDirectory}>{t("Escolher agente ")}<span aria-hidden="true">↗</span></button><div className="terminal-welcome-features"><span><ToolIcon name="Histórico" size={15} />{t(" Histórico local")}</span><span><ToolIcon name="Memória" size={15} />{t(" Memória do projeto")}</span><span><ToolIcon name="Git" size={15} />{t(" Contexto portátil")}</span></div></div> : null}
       <div ref={hostRef} className={native ? "xterm-host" : "xterm-host xterm-host--hidden"} />
       {!native ? <div className="terminal-lines">{terminalLines.map((line, index) => <p className={`terminal-line terminal-line--${line.kind}`} key={`${line.text}-${index}`}>{line.text}</p>)}</div> : null}
       {native ? <div className="terminal-footer">
-        <span className="session-status" aria-live="polite">{sessionId ? `Sessão ${sessionId.slice(0, 8)}${resumedSession ? " · retomada" : ""}` : status === "error" ? "Falha ao iniciar" : "Sem sessão ativa"}</span>
+        <span className="session-status" aria-live="polite">{sessionId ? t("Sessão {0}{1}", {0: sessionId.slice(0, 8), 1: resumedSession ? " · retomada" : ""}) : status === "error" ? t("Falha ao iniciar") : t("Sem sessão ativa")}</span>
         <OrchestratorBar ref={orchestratorRef} agents={agents} activeAgentId={activeAgent ?? ""} canSwitch={canSwitchAgent} canResume={canResume} onSwitchAgent={switchAgent} onResume={resumeFromCommand} />
-      </div> : <div className="command-bar"><span className="terminal-caret">›</span><span>Execute a versão Tauri para usar o PTY real.</span></div>}
+      </div> : <div className="command-bar"><span className="terminal-caret">›</span><span>{t("Execute a versão Tauri para usar o PTY real.")}</span></div>}
     </section>
   </main>;
 }

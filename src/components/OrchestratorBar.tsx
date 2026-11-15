@@ -1,3 +1,4 @@
+import { t } from "../i18n";
 import { modifierLabel } from "../data/presentation";
 import { forwardRef, useImperativeHandle, useRef, useState } from "react";
 import type { Agent } from "../data/workspace";
@@ -111,12 +112,12 @@ export const OrchestratorBar = forwardRef<OrchestratorBarHandle, Props>(function
         value={value}
         onChange={(event) => { setValue(event.target.value); setHighlight(0); }}
         onKeyDown={onKeyDown}
-        placeholder={`agente <id> · retomar · ajuda — (${modifierLabel}+K)`}
-        aria-label="Comando do orquestrador"
+        placeholder={t("agente <id> · retomar · ajuda — ({0}+K)", {0: modifierLabel})}
+        aria-label={t("Comando do orquestrador")}
         autoComplete="off"
       />
     </div>
-    {suggestions.length > 0 ? <ul className="orchestrator-palette" role="listbox" aria-label="Agentes disponíveis">
+    {suggestions.length > 0 ? <ul className="orchestrator-palette" role="listbox" aria-label={t("Agentes disponíveis")}>
       {suggestions.map((agent, index) => <li key={agent.id} role="option" aria-selected={index === highlight} className={index === highlight ? "orchestrator-option orchestrator-option--active" : "orchestrator-option"} onMouseEnter={() => setHighlight(index)} onMouseDown={(event) => { event.preventDefault(); applySwitch(agent.id); setValue(""); }}>
         <strong>{agent.label}</strong><small>{agent.version ?? "versão desconhecida"}</small>
       </li>)}

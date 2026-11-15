@@ -1,4 +1,8 @@
+import { useAppliedTheme } from "./hooks/useAppliedTheme";
+import { t } from "./i18n";
 import { useCallback, useEffect, useRef, useState } from "react";
+import { FirstRunDialog } from "./components/FirstRunDialog";
+import { setupCompleted, useLanguage } from "./i18n";
 import { Sidebar, type ProjectHistoryStats } from "./components/Sidebar";
 import { WindowControls } from "./components/WindowControls";
 import { StatusDot } from "./components/StatusDot";
@@ -26,19 +30,6 @@ import { checkForUpdate, type UpdateInfo } from "./services/updater";
 
 /** NFR-006 — aplica a preferência de tema e devolve o valor resolvido
     ("light"/"dark") para quem precisa trocar ativos por tema. */
-function useAppliedTheme(preference: ThemePreference): "light" | "dark" {
-  const [resolved, setResolved] = useState<"light" | "dark">("dark");
-  useEffect(() => {
-    const root = document.documentElement;
-    if (preference !== "system") { root.dataset.theme = preference; setResolved(preference); return; }
-    const media = window.matchMedia("(prefers-color-scheme: light)");
-    const apply = () => { const value = media.matches ? "light" : "dark"; root.dataset.theme = value; setResolved(value); };
-    apply();
-    media.addEventListener("change", apply);
-    return () => { delete root.dataset.theme; media.removeEventListener("change", apply); };
-  }, [preference]);
-  return resolved;
-}
 
 /** Baralho de Chips: as ferramentas do projeto são fichas de cor indexadas
     na identidade Eureka42. A ficha ativa sai do baralho e sua cor carimba
@@ -53,6 +44,8 @@ const UTILITY_CHIPS = [
 const NO_CONNECTED_AGENTS: ConnectedAgent[] = [];
 
 export function App() {
+  useLanguage();
+  const [configured, setConfigured] = useState(setupCompleted);
   const [projects, setProjects] = useState<Project[]>([]);
   const [selectedProjectId, setSelectedProjectId] = useState<string | null>(null);
   const [utility, setUtility] = useState<string>("Terminal");
@@ -275,10 +268,10 @@ export function App() {
       <WindowControls />
       <img src={resolvedTheme === "light" ? logoClaro : logoEscuro} alt="Eureka42" className="titlebar-logo" />
       <div className="titlebar-status">
-        <button className="titlebar-cloud" onClick={() => { setSettingsSection("cloud"); setSettingsOpen(true); }} title="Continuar em outro computador" aria-label="Configurar sincronização"><StatusDot active={cloudLabel !== "Local"} />{cloudLabel === "Local" ? "Conectar nuvem" : cloudLabel}</button>
-        <span className="titlebar-agents">{`${agents.filter((agent) => agent.available).length} CLIs disponíveis`}</span>
-        <button className="titlebar-button" onClick={() => setAboutOpen(true)}>Sobre</button>
-        <button className="icon-button" aria-label="Configurações" title={`Configurações (${modifierLabel}+,)`} onClick={() => setSettingsOpen(true)}>
+        <button className="titlebar-cloud" onClick={() => { setSettingsSection("cloud"); setSettingsOpen(true); }} title={t("Continuar em outro computador")} aria-label={t("Configurar sincronização")}><StatusDot active={cloudLabel !== "Local"} />{cloudLabel === "Local" ? t("Conectar nuvem") : cloudLabel}</button>
+        <span className="titlebar-agents">{t("{0} CLIs disponíveis", {0: agents.filter((agent) => agent.available).length})}</span>
+        <button className="titlebar-button" onClick={() => setAboutOpen(true)}>{t("Sobre")}</button>
+        <button className="icon-button" aria-label={t("Configurações")} title={t("Configurações ({0}+,)", {0: modifierLabel})} onClick={() => setSettingsOpen(true)}>
           <svg width="17" height="17" viewBox="0 0 16 16" aria-hidden="true">
             <path d="M6.5 1.5h3l.5 1.7a5 5 0 0 1 1.5.9l1.7-.6 1.5 2.6-1.3 1.2a5 5 0 0 1 0 1.4l1.3 1.2-1.5 2.6-1.7-.6a5 5 0 0 1-1.5.9l-.5 1.7h-3l-.5-1.7a5 5 0 0 1-1.5-.9l-1.7.6-1.5-2.6L2.6 9.5a5 5 0 0 1 0-1.4L1.3 6.9l1.5-2.6 1.7.6a5 5 0 0 1 1.5-.9z" fill="none" stroke="currentColor" strokeWidth="1.2" strokeLinejoin="round" />
             <circle cx="8" cy="8" r="2.1" fill="none" stroke="currentColor" strokeWidth="1.2" />
@@ -287,30 +280,31 @@ export function App() {
       </div>
     </header>
     <Sidebar agents={connectedAgents} hasProject={selectedProject !== null} projectStats={projectStats} projects={projects} selectedProjectId={selectedProjectId} onProjectSelect={(project) => setSelectedProjectId(project.id)} onAddProject={addProject} onFavorite={toggleFavorite} onArchive={archiveProject} onOpenStorage={() => { setSettingsSection("account"); setSettingsOpen(true); }} />
-    <nav className="chip-rail" aria-label="Ferramentas do projeto">
+    <nav className="chip-rail" aria-label={t("Ferramentas do projeto")}>
       {UTILITY_CHIPS.map((chip) => <button
         key={chip.id}
         className={chip.id === utility ? "chip chip--active" : "chip"}
         style={{ "--chip": chip.color, "--chip-ink": chip.ink } as React.CSSProperties}
         aria-pressed={chip.id === utility}
-        aria-label={chip.id}
+        aria-label={t(chip.id)}
         onClick={() => setUtility(chip.id)}
       >
         <span className="chip-card"><ToolIcon name={chip.id} /><b>{chip.code}</b></span>
-        <span className="chip-label">{chip.id.toUpperCase()}</span>
+        <span className="chip-label">{t(chip.id).toUpperCase()}</span>
       </button>)}
     </nav>
-    <section className="project-header"><div><small className="eyebrow">{selectedProject ? "PROJETO ATIVO" : "VAMOS COMEÇAR"}</small><h1>{selectedProject?.name ?? "Abra um projeto"}</h1><span>{selectedProject ? displayPath(selectedProject.path) : "Selecione uma pasta para começar"}</span></div><div className="project-header-actions">{cloudSyncEnabled && selectedProject ? <><button className={selectedProject.filesSyncEnabled ? "sync-history-toggle sync-history-toggle--active" : "sync-history-toggle"} onClick={() => toggleFilesSync(selectedProject)} title="Espelha os arquivos do projeto na sua nuvem (exceto .git, dependências, segredos e arquivos > 4 MiB)">☁ Arquivos: {selectedProject.filesSyncEnabled ? "ligado" : "desligado"}</button><button className={selectedProject.syncTerminalHistory ? "sync-history-toggle sync-history-toggle--active" : "sync-history-toggle"} onClick={() => toggleTerminalHistorySync(selectedProject)} title="Histórico de terminal pode conter segredos colados — desligado por padrão">☁ Histórico: {selectedProject.syncTerminalHistory ? "ligado" : "desligado"}</button></> : null}<button className="handoff-button" disabled={!selectedProject} onClick={() => setHandoffOpen(true)}>⇄ <span>Transferir contexto</span></button></div></section>
+    <section className="project-header"><div><small className="eyebrow">{selectedProject ? t("PROJETO ATIVO") : t("VAMOS COMEÇAR")}</small><h1>{selectedProject?.name ?? "Abra um projeto"}</h1><span>{selectedProject ? displayPath(selectedProject.path) : t("Selecione uma pasta para começar")}</span></div><div className="project-header-actions">{cloudSyncEnabled && selectedProject ? <><button className={selectedProject.filesSyncEnabled ? "sync-history-toggle sync-history-toggle--active" : "sync-history-toggle"} onClick={() => toggleFilesSync(selectedProject)} title={t("Espelha os arquivos do projeto na sua nuvem (exceto .git, dependências, segredos e arquivos > 4 MiB)")}>{t("☁ Arquivos: ")}{selectedProject.filesSyncEnabled ? t("ligado") : t("desligado")}</button><button className={selectedProject.syncTerminalHistory ? "sync-history-toggle sync-history-toggle--active" : "sync-history-toggle"} onClick={() => toggleTerminalHistorySync(selectedProject)} title={t("Histórico de terminal pode conter segredos colados — desligado por padrão")}>{t("☁ Histórico: ")}{selectedProject.syncTerminalHistory ? t("ligado") : t("desligado")}</button></> : null}<button className="handoff-button" disabled={!selectedProject} onClick={() => setHandoffOpen(true)}>⇄ <span>{t("Transferir contexto")}</span></button></div></section>
     {availableUpdate ? <UpdateBanner update={availableUpdate} onDismiss={() => setAvailableUpdate(null)} /> : null}
     {projectError ? <div className="project-error" role="alert">{projectError}</div> : null}
-    {syncConflict ? <div className="project-error sync-conflict" role="alert"><p>{syncConflict.message}</p>{syncConflict.files.length > 0 ? <ul className="sync-conflict-files">{syncConflict.files.slice(0, 8).map((file) => <li key={file}>{file}</li>)}{syncConflict.files.length > 8 ? <li>… e mais {syncConflict.files.length - 8}</li> : null}</ul> : null}<div className="sync-conflict-actions"><button className="secondary-button" onClick={() => resolveSyncConflict("local")}>Usar versão local</button><button className="secondary-button" onClick={() => resolveSyncConflict("remote")}>Usar versão da nuvem</button></div></div> : null}
+    {syncConflict ? <div className="project-error sync-conflict" role="alert"><p>{syncConflict.message}</p>{syncConflict.files.length > 0 ? <ul className="sync-conflict-files">{syncConflict.files.slice(0, 8).map((file) => <li key={file}>{file}</li>)}{syncConflict.files.length > 8 ? <li>{t("… e mais ")}{syncConflict.files.length - 8}</li> : null}</ul> : null}<div className="sync-conflict-actions"><button className="secondary-button" onClick={() => resolveSyncConflict("local")}>{t("Usar versão local")}</button><button className="secondary-button" onClick={() => resolveSyncConflict("remote")}>{t("Usar versão da nuvem")}</button></div></div> : null}
     {!syncConflict && syncStatus ? <div className="sync-status" role="status" onClick={() => setSyncStatus(null)}>☁ {syncStatus}</div> : null}
     {projects.length === 0 ? <Onboarding onAddProject={addProject} /> : null}
     <div className="content-stack" style={{ "--chip": activeChip.color } as React.CSSProperties}>
       <div className="content-keyline" aria-hidden="true" />
       {projects.filter(project => visitedProjects.has(project.id) || project.id === selectedProjectId).map(project => <TerminalWorkspace key={project.id} agents={agents} connectedAgents={connectedByProject[project.id] ?? []} workingDirectory={project.path} active={utility === "Terminal" && project.id === selectedProjectId} onAgentStarted={() => refreshConnectedAgents(project.id)} />)}<HistoryPane agents={agents} key={`history-${selectedProjectId}`} projectId={selectedProject?.id ?? null} active={utility === "Histórico"} /><MemoryPane key={`memory-${selectedProjectId}`} projectId={selectedProject?.id ?? null} active={utility === "Memória"} /><GitPane key={`git-${selectedProjectId}`} projectId={selectedProject?.id ?? null} active={utility === "Git"} /><TasksPane key={`tasks-${selectedProjectId}`} projectId={selectedProject?.id ?? null} active={utility === "Tarefas"} />
     </div>
-    <SettingsDialog initialSection={settingsSection} open={settingsOpen} onClose={() => setSettingsOpen(false)} onSettingsSaved={onSettingsSaved} />
+    {!configured && <FirstRunDialog onComplete={(settings) => { if (settings) applyCloudSettings(settings); setConfigured(true); }} />}
+      <SettingsDialog initialSection={settingsSection} open={settingsOpen} onClose={() => setSettingsOpen(false)} onSettingsSaved={onSettingsSaved} />
     <HandoffDialog open={handoffOpen} projectId={selectedProject?.id ?? null} agents={agents} onClose={() => setHandoffOpen(false)} />
     <AboutDialog open={aboutOpen} onClose={() => setAboutOpen(false)} />
   </div>;
@@ -318,16 +312,16 @@ export function App() {
 
 /** Primeira execução para quem baixou o app: o que fazer em três passos. */
 function Onboarding({ onAddProject }: { onAddProject(): void }) {
-  return <section className="onboarding" aria-label="Comece aqui">
+  return <section className="onboarding" aria-label={t("Comece aqui")}>
     <div className="onboarding-card">
-      <h2>Bem-vindo ao Eureka42</h2>
-      <p className="onboarding-tagline">Um terminal. Inteligência infinita. Qualquer CLI de IA no mesmo projeto, com contexto que atravessa conversas e máquinas.</p>
+      <h2>{t("Bem-vindo ao Eureka42")}</h2>
+      <p className="onboarding-tagline">{t("Um terminal. Inteligência infinita. Qualquer CLI de IA no mesmo projeto, com contexto que atravessa conversas e máquinas.")}</p>
       <ol className="onboarding-steps">
-        <li><strong>Abra um projeto</strong><span>Aponte a pasta do seu trabalho — o histórico, a memória e o contexto passam a ficar ligados a ela.</span></li>
-        <li><strong>Conecte um agente</strong><span>Escolha uma CLI instalada. O terminal mantém a interface original e o histórico ligado a este projeto.</span></li>
-        <li><strong>Continue de qualquer lugar</strong><span>Configure seu Google Drive ou OneDrive para levar os dados que você escolher a outra máquina. A sincronização é opcional.</span></li>
+        <li><strong>{t("Abra um projeto")}</strong><span>{t("Aponte a pasta do seu trabalho — o histórico, a memória e o contexto passam a ficar ligados a ela.")}</span></li>
+        <li><strong>{t("Conecte um agente")}</strong><span>{t("Escolha uma CLI instalada. O terminal mantém a interface original e o histórico ligado a este projeto.")}</span></li>
+        <li><strong>{t("Continue de qualquer lugar")}</strong><span>{t("Configure seu Google Drive ou OneDrive para levar os dados que você escolher a outra máquina. A sincronização é opcional.")}</span></li>
       </ol>
-      <button className="primary-button" onClick={onAddProject}>Abrir meu primeiro projeto</button>
+      <button className="primary-button" onClick={onAddProject}>{t("Abrir meu primeiro projeto")}</button>
     </div>
   </section>;
 }

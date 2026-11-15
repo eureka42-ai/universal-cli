@@ -200,3 +200,11 @@ A standalone Rust console sidecar replaces the GUI-process bridge. Its real ConP
 Interface alinhada ao site eureka42.org: branco/verde, navegação com ícones, boas-vindas, caminhos de armazenamento reais. Sistema passa a ser o tema padrão; Claro/Escuro permanecem disponíveis. Manifests e Sobre identificam 0.2.0.
 
 CI 0d8f277 passou em Windows/macOS/Linux, incluindo compilação de executáveis Windows. Teste GUI real abriu Gemini 0.68.0 em ConPTY. Encontrado novo defeito: CMD rejeita cwd canônico verbatim e cai em Windows. Reproduzido localmente exigindo arquivo exclusivo do projeto; correção usa forma Win32 no processo e preserva caminho canônico no banco. Mesmo teste passou após correção. Conversa e autenticação do provedor não foram automatizadas.
+
+### 2026-11-14 — preferências iniciais e idiomas
+
+Primeira configuração pede idioma e tema; Sistema é a seleção inicial. O diálogo permanece aberto em erro de gravação, permite nova tentativa e mantém o foco do teclado. Preferências de captura/nuvem são preservadas ao gravar o tema. Seleção de idioma persiste localmente; em Configurações, Cancelar restaura a seleção anterior e Salvar confirma.
+
+Os mesmos 15 idiomas do site estão disponíveis (pt-BR, en, it, es, fr, de, nl, pl, ru, tr, ar, hi, ja, ko, zh). Inglês cobre 320 mensagens; os demais catálogos cobrem a configuração inicial e as ações dos fluxos principais. Instruções avançadas ainda usam fallback inglês; manifesto institucional e saídas das CLIs permanecem no original. Árabe aplica RTL à interface, preservando LTR no terminal. Datas seguem o idioma selecionado.
+
+Validação local: 28 testes frontend aprovados e build de produção aprovado. CI de b6ceaf5 passou nos três sistemas e gerou o primeiro instalador 0.2.0 do Windows. Pipeline Desktop packages gera Windows NSIS/MSI, Linux DEB/AppImage e macOS APP/DMG do mesmo commit. Assinatura de distribuição/notarização e execução visual em Linux/macOS não são alegadas.
