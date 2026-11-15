@@ -28,7 +28,7 @@ jobs:
           node-version: 22
       - name: Linux build dependencies
         if: runner.os == 'Linux'
-        run: sudo apt-get update && sudo apt-get install -y libwebkit2gtk-4.1-dev libgtk-3-dev libayatana-appindicator3-dev librsvg2-dev libxdo-dev libssl-dev patchelf
+        run: sudo apt-get update && sudo apt-get install -y libwebkit2gtk-4.1-dev libgtk-3-dev libayatana-appindicator3-dev librsvg2-dev libxdo-dev libssl-dev patchelf xvfb xdotool scrot dbus-x11
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
         with:
@@ -40,6 +40,25 @@ jobs:
         run: |
           printf '%s' '{"bundle":{"createUpdaterArtifacts":false}}' > bundle-config.json
           npm run tauri -- build --bundles ${{ matrix.bundles }} --config bundle-config.json
+      - name: Validate Linux packages and launch both formats
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          mkdir -p qa
+          deb=$(find src-tauri/target/release/bundle/deb -name '*.deb' -print -quit)
+          image=$(find src-tauri/target/release/bundle/appimage -name '*.AppImage' -print -quit)
+          dpkg-deb --info "$deb"
+          dpkg-deb -x "$deb" qa/deb-root
+          dbus-run-session -- xvfb-run -a -s '-screen 0 1280x900x24' bash scripts/linux-package-smoke.sh "$(pwd)/qa/deb-root/usr/bin/Eureka42" "$(pwd)/qa/linux-deb.png"
+          image=$(realpath "$image")
+          mkdir -p qa/appimage
+          (cd qa/appimage && "$image" --appimage-extract >/dev/null)
+          dbus-run-session -- xvfb-run -a -s '-screen 0 1280x900x24' bash scripts/linux-package-smoke.sh "$(pwd)/qa/appimage/squashfs-root/AppRun" "$(pwd)/qa/linux-appimage.png"
+      - name: Validate macOS disk image
+        if: runner.os == 'macOS'
+        run: |
+          hdiutil verify src-tauri/target/release/bundle/dmg/*.dmg
+          file src-tauri/target/release/bundle/macos/Eureka42.app/Contents/MacOS/Eureka42
       - name: Archive macOS application
         if: runner.os == 'macOS'
         run: ditto -c -k --sequesterRsrc --keepParent src-tauri/target/release/bundle/macos/Eureka42.app Eureka42-macos-arm64.zip
@@ -54,3 +73,5 @@ jobs:
             src-tauri/target/release/bundle/appimage/*.AppImage
             src-tauri/target/release/bundle/dmg/*.dmg
             Eureka42-macos-arm64.zip
+            qa/*.png
+            qa/*.log
