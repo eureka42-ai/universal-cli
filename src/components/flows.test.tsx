@@ -147,3 +147,30 @@ it("Tarefas usa proveniência legível e permite concluir um item", async () => 
   await waitFor(() => expect(mock.toggle).toHaveBeenCalledWith("t1", true));
   await waitFor(() => expect((screen.getByRole("checkbox") as HTMLInputElement).checked).toBe(true));
 });
+
+it("Histórico consolida redesenhos e preserva a opção de registro completo", async () => {
+  mock.sessions.mockResolvedValueOnce([{ id: "history-screen", projectId: "p1", agentId: "gemini", workingDirectory: "C:/projeto", status: "EXITED", startedAt: 1, endedAt: 2, eventCount: 1, capturedBytes: 100 }]);
+  mock.events.mockResolvedValueOnce([{ id: 1, direction: "OUTPUT", text: "Processando 10%\r\x1b[2KConcluído CAFE-42", createdAt: 1 }]);
+  render(<HistoryPane active projectId="p1" agents={agents} />);
+  fireEvent.click(await screen.findByRole("button", {name:/Gemini/}));
+  await waitFor(() => expect(screen.getByLabelText("Registro de terminal").textContent).toBe("Concluído CAFE-42"));
+  fireEvent.change(screen.getByRole("textbox",{name:"Buscar nesta sessão"}),{target:{value:"CAFE-42"}});
+  expect(document.querySelector("mark")?.textContent).toBe("CAFE-42");
+  fireEvent.click(screen.getByRole("tab",{name:"Registro completo"}));
+  expect(screen.getByLabelText("Registro de terminal").textContent).toContain("Processando 10%");
+});
+it("Histórico ignora falha de paginação antiga após navegar para outra sessão", async () => {
+  const session=(id:string)=>({ id, projectId:"p1",agentId:"gemini",workingDirectory:"C:/projeto",status:"EXITED",startedAt:1,endedAt:2,eventCount:201,capturedBytes:100 });
+  let rejectPage:(error:Error)=>void=()=>{};
+  mock.sessions.mockResolvedValueOnce([session("first"),session("second")]);
+  mock.events.mockResolvedValueOnce(Array.from({length:200},(_,id)=>({id,text:id===0?"primeira":"",direction:"OUTPUT",createdAt:1})))
+    .mockImplementationOnce(()=>new Promise((_resolve,reject)=>{rejectPage=reject;}))
+    .mockResolvedValueOnce([{id:1,text:"segunda",direction:"OUTPUT",createdAt:1}]);
+  render(<HistoryPane active projectId="p1" agents={agents}/>);
+  fireEvent.click((await screen.findAllByRole("button",{name:/Gemini/}))[0]);
+  fireEvent.click(await screen.findByRole("button",{name:"Carregar mais registros"}));
+  fireEvent.click(screen.getByRole("button",{name:"Sessão anterior"}));
+  await waitFor(()=>expect(screen.getByLabelText("Registro de terminal").textContent).toBe("segunda"));
+  rejectPage(new Error("stale page error"));
+  await waitFor(()=>expect(screen.getByRole("status").textContent).not.toContain("stale page error"));
+});

@@ -208,3 +208,15 @@ Primeira configuração pede idioma e tema; Sistema é a seleção inicial. O di
 Os mesmos 15 idiomas do site estão disponíveis (pt-BR, en, it, es, fr, de, nl, pl, ru, tr, ar, hi, ja, ko, zh). Inglês cobre 320 mensagens; os demais catálogos cobrem a configuração inicial e as ações dos fluxos principais. Instruções avançadas ainda usam fallback inglês; manifesto institucional e saídas das CLIs permanecem no original. Árabe aplica RTL à interface, preservando LTR no terminal. Datas seguem o idioma selecionado.
 
 Validação local: 28 testes frontend aprovados e build de produção aprovado. CI de b6ceaf5 passou nos três sistemas e gerou o primeiro instalador 0.2.0 do Windows. Pipeline Desktop packages gera Windows NSIS/MSI, Linux DEB/AppImage e macOS APP/DMG do mesmo commit. Assinatura de distribuição/notarização e execução visual em Linux/macOS não são alegadas.
+
+### 2026-11-14 — segunda revisão do histórico
+
+Lista agrupada por dia, agente/horário/duração/volume e estado explícito. Leitor limitado à janela com rolagem independente, navegação entre sessões, busca com realce, Leitura e Registro completo, detalhes técnicos recolhidos e exportações sempre visíveis. Reconstrução local com xterm/headless consolida comandos de cursor e apagamento; não infere papéis nem inventa conversa. Registro completo e bytes originais permanecem disponíveis.
+
+Corrigida perda de informação na API anterior: ela removia ANSI por pacote, quebrando comandos fragmentados e títulos OSC. A API agora inclui bytes originais; TextDecoder em streaming preserva Unicode entre pacotes antes da reprodução. Exportações agrupam blocos adjacentes de mesma direção antes de decodificar e aplicar remoção básica de segredos.
+
+33 testes frontend aprovados; build aprovado. Incluem cursor sobrescrevendo progresso, split UTF-8/OSC, preservação do registro completo, busca e falha assíncrona antiga ignorada após navegar para outra sessão. Teste visual browser com fixtures (não prova conexão nativa) verifica conteúdo longo, footer dentro da janela e temas/tamanhos. Interface Windows exercitada com registros reais; bytes na versão nativa final ainda dependem do próximo build.
+
+CI e pacotes de 6d0ad5b passaram em todos os sistemas: Windows EXE/MSI, Linux DEB e AppImage separados, macOS APP/DMG. Nova geração será feita para incluir esta revisão. Teste headless dos 15 idiomas: primeira configuração, persistência, direção e ausência de overflow horizontal aprovados; execução visual nativa do idioma/tema continua sendo testada separadamente.
+
+Antigravity: o executável CLI não estava instalado nas pastas oficiais. Binário 1.5.9 baixado do manifest oficial, SHA-512 conferido e instalado em LOCALAPPDATA/agy/bin, sem alterar PATH de sistema. Foi detectado e aberto pelo Eureka42 em ConPTY, chegando à configuração inicial. Autenticação e conversa do agy não foram automatizadas. Gemini abre e foi autenticado manualmente pelo usuário; numa nova abertura ainda foi observada mensagem de cliente não suportado do Google Code Assist. Não afirmar que conversa do modelo foi validada.
