@@ -220,3 +220,7 @@ Corrigida perda de informação na API anterior: ela removia ANSI por pacote, qu
 CI e pacotes de 6d0ad5b passaram em todos os sistemas: Windows EXE/MSI, Linux DEB e AppImage separados, macOS APP/DMG. Nova geração será feita para incluir esta revisão. Teste headless dos 15 idiomas: primeira configuração, persistência, direção e ausência de overflow horizontal aprovados; execução visual nativa do idioma/tema continua sendo testada separadamente.
 
 Antigravity: o executável CLI não estava instalado nas pastas oficiais. Binário 1.5.9 baixado do manifest oficial, SHA-512 conferido e instalado em LOCALAPPDATA/agy/bin, sem alterar PATH de sistema. Foi detectado e aberto pelo Eureka42 em ConPTY, chegando à configuração inicial. Autenticação e conversa do agy não foram automatizadas. Gemini abre e foi autenticado manualmente pelo usuário; numa nova abertura ainda foi observada mensagem de cliente não suportado do Google Code Assist. Não afirmar que conversa do modelo foi validada.
+
+### Conclusão da inspeção visual compacta
+
+A matriz de histórico com sessão longa passou em 1280×768 e 900×600, claro e escuro: painel/rodapé dentro da janela, busca com realce, controles de cursor consolidados, registro completo preservado e Esc retornando à lista. Primeiro ensaio revelou regra legada que escondia o nome da sessão em 900px; corrigida por seletor específico e reensaio aprovado nos quatro casos. Contexto gerado passa a identificar Eureka42 e horários UTC explicitamente. CI de 1dbd6cb passou Windows/macOS/Linux.

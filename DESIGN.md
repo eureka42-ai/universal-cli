@@ -21,3 +21,7 @@ Painéis usam títulos Inter 22px, texto 12–14px e medidas/caminhos em JetBrai
 Histórico é um registro do terminal: leitura limpa por padrão e eventos técnicos opcionais. Não apresentar isso como reconstrução semântica de conversa. Explicar armazenamento e sincronização com caminhos reais. Não confundir agente cadastrado com processo em execução nem disponibilidade com autenticação. Tema e idioma não traduzem ou alteram o conteúdo da CLI.
 
 Manter rótulos acessíveis, foco visível, atalhos próprios da plataforma e prefers-reduced-motion. Texto do manifesto institucional em Sobre é preservado.
+
+## Histórico
+
+Agrupar sessões por dia, com agente, horário, duração, volume e estado. Leitor tem altura limitada à janela e rolagem interna. Cabeçalho, alternância Leitura/Registro completo, busca e exportações ficam acessíveis. Leitura consolida controles de terminal com parser xterm; o registro completo preserva redesenhos. Não inventar uma conversa estruturada nem nomes de usuário/modelo. Janela de 900×600 preserva identificação e controles.
