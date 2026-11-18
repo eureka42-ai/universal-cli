@@ -4,11 +4,11 @@
 
 <p align="center">
   <strong>Um orquestrador desktop local-first para qualquer CLI de IA.</strong><br>
-  Codex · Claude Code · OpenCode · Kimi · Gemini · Aider · Cursor · Amp · Goose · Qwen · <em>a sua também</em>
+  Codex · Claude Code · OpenCode · Kimi · Gemini · Antigravity CLI · Aider · Cursor · Amp · Goose · Qwen · <em>a sua também</em>
 </p>
 
 <p align="center">
-  <img src="https://img.shields.io/badge/versão-0.1.0-teal" alt="Versão 0.1.0">
+  <img src="https://img.shields.io/badge/versão-0.2.0-teal" alt="Versão 0.2.0">
   <img src="https://img.shields.io/badge/Tauri_2-24C8D8?logo=tauri&logoColor=white" alt="Tauri 2">
   <img src="https://img.shields.io/badge/Rust-000000?logo=rust&logoColor=white" alt="Rust">
   <img src="https://img.shields.io/badge/React_19-20232A?logo=react" alt="React 19">
@@ -26,6 +26,18 @@
 </p>
 
 ---
+
+## Baixar a versão 0.2.0
+
+[Ver release e todos os arquivos](https://github.com/eureka42-ai/universal-cli/releases/tag/v0.2.0)
+
+| Plataforma | Downloads |
+|---|---|
+| Windows x64 | [Instalador EXE](https://github.com/eureka42-ai/universal-cli/releases/download/v0.2.0/Eureka42_0.2.0_x64-setup.exe) · [MSI](https://github.com/eureka42-ai/universal-cli/releases/download/v0.2.0/Eureka42_0.2.0_x64_en-US.msi) |
+| Linux x64 | [DEB (Debian/Ubuntu)](https://github.com/eureka42-ai/universal-cli/releases/download/v0.2.0/Eureka42_0.2.0_amd64.deb) · [AppImage](https://github.com/eureka42-ai/universal-cli/releases/download/v0.2.0/Eureka42_0.2.0_amd64.AppImage) |
+| macOS Apple Silicon / ARM64 | [DMG](https://github.com/eureka42-ai/universal-cli/releases/download/v0.2.0/Eureka42_0.2.0_aarch64.dmg) |
+
+Na primeira abertura, escolha idioma e tema. O padrão é **Sistema**; **Claro** e **Escuro** também estão disponíveis.
 
 ## O que é o Universal-CLI?
 
@@ -183,29 +195,25 @@ shims `.cmd` no Windows). Detalhes em `docs/03-AGENTES-E-TERMINAL.md`.
 Baixe o pacote da sua plataforma na [página de Releases](../../releases)
 (o CI builda **macOS** `.dmg`, **Windows** `.exe`/`.msi` e **Linux** `.deb`/`.AppImage`).
 
-**macOS** (Apple Silicon): a build atual usa **assinatura ad-hoc** — no primeiro
-clique, use botão direito → Abrir (ou `xattr -dr com.apple.quarantine Eureka42.app`).
-Notarização Apple Developer ainda não configurada.
+**macOS** (Apple Silicon/ARM64): use o DMG. Notarização Apple Developer ainda não configurada; não há build para Mac Intel nesta versão.
 
 **Windows**: o instalador NSIS embute o bootstrapper do WebView2 e oferece
 PT-BR/EN; modo de instalação "só para mim" ou "todos os usuários".
 
-**Linux** (Ubuntu/Debian): `sudo dpkg -i Eureka42_0.1.0_amd64.deb` (resolve as
-deps `libwebkit2gtk-4.1`/`libgtk-3` pelo apt) — ou rode o `Eureka42_0.1.0_amd64.AppImage`
-direto: `chmod +x` e pronto.
+**Linux** (Ubuntu/Debian): use `sudo apt install ./Eureka42_0.2.0_amd64.deb` para instalar o pacote e resolver as dependências — ou torne `Eureka42_0.2.0_amd64.AppImage` executável com `chmod +x` e abra o arquivo.
 
 ## Desenvolvimento
 
 ```bash
 npm install                # dependências do frontend
 npm run build              # typecheck + bundle Vite
-npm test                   # 6 testes Vitest
-cargo test --manifest-path src-tauri/Cargo.toml   # 32 testes Rust
+npm test                   # testes de interface
+cargo test --manifest-path src-tauri/Cargo.toml   # testes nativos
 npm run tauri dev          # app em modo desenvolvimento
 npm run tauri -- build     # .app/.exe/.deb/.AppImage + artefatos do updater
 ```
 
-Requisitos: Rust estável + Node 20+. No Linux, instale antes
+Requisitos: Rust estável + Node 22 (versão usada na CI). No Linux, instale antes
 `libwebkit2gtk-4.1-dev libgtk-3-dev libayatana-appindicator3-dev librsvg2-dev libxdo-dev libssl-dev`.
 
 ## Documentação
