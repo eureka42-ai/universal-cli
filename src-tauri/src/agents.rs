@@ -4,7 +4,7 @@ use std::{
     collections::HashSet,
     env,
     path::{Path, PathBuf},
-    process::{Command, Stdio},
+    process::Stdio,
     time::Duration,
 };
 use tauri::State;
@@ -62,6 +62,7 @@ const CATALOG: &[AgentDefinition] = &[
     AgentDefinition { id: "opencode", label: "OpenCode", executable: "opencode" },
     AgentDefinition { id: "kimi", label: "Kimi", executable: "kimi" },
     AgentDefinition { id: "gemini", label: "Gemini", executable: "gemini" },
+    AgentDefinition { id: "antigravity", label: "Antigravity CLI", executable: "agy" },
     AgentDefinition { id: "aider", label: "Aider", executable: "aider" },
     AgentDefinition { id: "cursor-agent", label: "Cursor", executable: "cursor-agent" },
     AgentDefinition { id: "amp", label: "Amp", executable: "amp" },
@@ -107,8 +108,11 @@ pub(crate) fn discover_agents(repository: &ProjectRepository) -> Vec<AgentInstal
 }
 
 #[tauri::command]
-pub fn detect_agents(repository: State<'_, ProjectRepository>) -> Vec<AgentInstallation> {
-    discover_agents(&repository)
+pub async fn detect_agents(repository: State<'_, ProjectRepository>) -> Result<Vec<AgentInstallation>, String> {
+    let repository = repository.inner().clone();
+    tauri::async_runtime::spawn_blocking(move || discover_agents(&repository))
+        .await
+        .map_err(|error| format!("falha ao verificar agentes: {error}"))
 }
 
 /// Agentes conectados a um projeto: qualquer `agent_id` com ao menos uma
@@ -229,19 +233,18 @@ pub(crate) fn find_agent_executable(
     repository: &ProjectRepository,
     agent_id: &str,
 ) -> Option<PathBuf> {
-    let executable = CATALOG
+    if let Some(definition) = CATALOG
         .iter()
         .find(|definition| definition.id == agent_id)
-        .map(|definition| definition.executable)?
-        .to_string();
-    find_executable(&executable).or_else(|| {
-        repository
-            .list_custom_agents()
-            .ok()?
-            .into_iter()
-            .find(|custom| custom.id == agent_id)
-            .and_then(|custom| find_executable(&custom.executable))
-    })
+    {
+        return find_executable(definition.executable);
+    }
+    repository
+        .list_custom_agents()
+        .ok()?
+        .into_iter()
+        .find(|custom| custom.id == agent_id)
+        .and_then(|custom| find_executable(&custom.executable))
 }
 
 /// Id estável e digitável para agente personalizado: slug do executável,
@@ -284,16 +287,44 @@ fn slugify(input: &str) -> Option<String> {
 
 fn find_executable(name: &str) -> Option<PathBuf> {
     let candidate_names = candidate_file_names(name);
+    // A configured absolute/relative path does not depend on PATH being set.
+    if Path::new(name).is_absolute() || name.contains('/') || name.contains('\\') {
+        return candidate_names.iter().map(PathBuf::from).find(|path| is_executable(path))
+            .and_then(|path| path.canonicalize().ok().or(Some(path)));
+    }
     executable_search_dirs().into_iter().find_map(|dir| {
         candidate_names.iter().find_map(|candidate_name| {
             let candidate = dir.join(candidate_name);
-            if candidate.is_file() {
+            if is_executable(&candidate) {
                 candidate.canonicalize().ok().or(Some(candidate))
             } else {
                 None
             }
         })
     })
+}
+
+fn is_executable(path: &Path) -> bool {
+    if !path.is_file() { return false; }
+    #[cfg(windows)]
+    {
+        if let Some(extension) = path.extension().and_then(|value| value.to_str()) {
+            return ["exe", "com", "cmd", "bat"].iter().any(|allowed| extension.eq_ignore_ascii_case(allowed));
+        }
+        // npm also creates extensionless POSIX shims. They are never native
+        // Windows executables; only accept an extensionless PE image.
+        use std::io::Read;
+        let mut magic = [0; 2];
+        return std::fs::File::open(path).and_then(|mut file| file.read_exact(&mut magic)).is_ok()
+            && magic == *b"MZ";
+    }
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        return path.metadata().is_ok_and(|metadata| metadata.permissions().mode() & 0o111 != 0);
+    }
+    #[cfg(not(any(windows, unix)))]
+    true
 }
 
 /// No Windows, `Command`/`CreateProcess` não resolve extensão sozinho como o
@@ -306,19 +337,25 @@ fn candidate_file_names(name: &str) -> Vec<String> {
     if !cfg!(windows) {
         return vec![name.to_string()];
     }
+    if Path::new(name).extension().is_some() { return vec![name.to_string()]; }
     let pathext = env::var("PATHEXT").unwrap_or_else(|_| ".COM;.EXE;.BAT;.CMD".to_string());
-    let mut names = vec![name.to_string()];
+    let mut names = Vec::new();
     for extension in pathext.split(';') {
-        let extension = extension.trim();
-        if extension.is_empty() {
+        let extension = extension.trim().to_ascii_lowercase();
+        if ![".exe", ".com", ".bat", ".cmd"].contains(&extension.as_str()) {
             continue;
         }
-        names.push(format!("{name}{}", extension.to_lowercase()));
+        names.push(format!("{name}{extension}"));
     }
+    for extension in [".exe", ".com", ".cmd", ".bat"] {
+        let candidate = format!("{name}{extension}");
+        if !names.contains(&candidate) { names.push(candidate); }
+    }
+    names.push(name.to_string());
     names
 }
 
-fn executable_search_dirs() -> Vec<PathBuf> {
+pub(crate) fn executable_search_dirs() -> Vec<PathBuf> {
     let mut paths = Vec::new();
     let mut seen = HashSet::new();
     if let Some(path) = env::var_os("PATH") {
@@ -337,7 +374,12 @@ fn executable_search_dirs() -> Vec<PathBuf> {
             paths.push(PathBuf::from(appdata).join("npm"));
         }
         if let Some(local_appdata) = env::var_os("LOCALAPPDATA") {
-            paths.push(PathBuf::from(local_appdata).join("Programs"));
+            let local_appdata = PathBuf::from(local_appdata);
+            let programs = local_appdata.join("Programs");
+            paths.extend([local_appdata.join("agy/bin"), programs.join("nodejs"), programs]);
+        }
+        for variable in ["ProgramFiles", "ProgramFiles(x86)"] {
+            if let Some(root) = env::var_os(variable) { paths.push(PathBuf::from(root).join("nodejs")); }
         }
     } else {
         paths.extend([
@@ -360,15 +402,22 @@ fn executable_search_dirs() -> Vec<PathBuf> {
 }
 
 fn read_version(path: &Path) -> (Option<String>, Option<String>) {
-    let child = Command::new(path)
+    let mut command = crate::agent_process::command(path);
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        command.creation_flags(0x08000000); // CREATE_NO_WINDOW: background probe.
+    }
+    let child = command
         .arg("--version")
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .spawn();
 
-    let Ok(mut child) = child else {
-        return (None, Some("não foi possível executar --version".into()));
+    let mut child = match child {
+        Ok(child) => child,
+        Err(error) => return (None, Some(format!("não foi possível executar --version: {error}"))),
     };
 
     match child.wait_timeout(VERSION_TIMEOUT) {
@@ -378,7 +427,13 @@ fn read_version(path: &Path) -> (Option<String>, Option<String>) {
                 let stderr = String::from_utf8_lossy(&output.stderr);
                 let version =
                     first_non_empty_line(&stdout).or_else(|| first_non_empty_line(&stderr));
-                (version.map(str::to_owned), None)
+                if !output.status.success() {
+                    return (None, Some(format!("--version falhou ({}): {}", output.status, version.unwrap_or("sem detalhes"))));
+                }
+                match version {
+                    Some(value) => (Some(value.to_owned()), None),
+                    None => (None, Some("--version terminou sem informar uma versão".into())),
+                }
             }
             Err(_) => (None, Some("falha ao coletar a versão".into())),
         },
@@ -412,6 +467,47 @@ mod tests {
         assert!(names.contains(&"codex".to_string()));
         assert!(names.contains(&"codex.exe".to_string()));
         assert!(names.contains(&"codex.cmd".to_string()));
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn windows_prefers_cmd_over_npm_posix_shim_and_accepts_absolute_paths() {
+        let directory = tempfile::tempdir().unwrap();
+        let bare = directory.path().join("fake-agent");
+        let batch = directory.path().join("fake-agent.cmd");
+        std::fs::write(&bare, "#!/bin/sh\nexit 0\n").unwrap();
+        std::fs::write(&batch, "@echo off\r\necho agent 1.0\r\n").unwrap();
+        assert!(!is_executable(&bare));
+        assert_eq!(find_executable(bare.to_str().unwrap()), Some(batch.canonicalize().unwrap()));
+        assert_eq!(find_executable(batch.to_str().unwrap()), Some(batch.canonicalize().unwrap()));
+        assert_eq!(read_version(&batch), (Some("agent 1.0".into()), None));
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn failed_version_probe_does_not_turn_error_text_into_a_version() {
+        let directory = tempfile::tempdir().unwrap();
+        let batch = directory.path().join("failure.cmd");
+        std::fs::write(&batch, "@echo off\r\necho missing dependency 1>&2\r\nexit /b 7\r\n").unwrap();
+        let (version, error) = read_version(&batch);
+        assert!(version.is_none());
+        assert!(error.unwrap().contains("missing dependency"));
+    }
+
+    #[test]
+    fn registered_custom_agent_resolves_without_a_catalog_entry() {
+        let directory = tempfile::tempdir().unwrap();
+        let repository = ProjectRepository::new(directory.path().join("test.sqlite"));
+        repository.initialize().unwrap();
+        let executable = if cfg!(windows) { directory.path().join("custom.cmd") } else { directory.path().join("custom-agent") };
+        std::fs::write(&executable, "echo CUSTOM_OK").unwrap();
+        #[cfg(unix)] {
+            use std::os::unix::fs::PermissionsExt;
+            std::fs::set_permissions(&executable, std::fs::Permissions::from_mode(0o700)).unwrap();
+        }
+        repository.insert_custom_agent("my-custom", "My custom", executable.to_str().unwrap()).unwrap();
+        assert_eq!(find_agent_executable(&repository, "my-custom"), Some(executable.canonicalize().unwrap()));
+        assert!(find_agent_executable(&repository, "unknown-agent").is_none());
     }
 
     #[test]

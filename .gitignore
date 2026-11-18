@@ -2,6 +2,7 @@ node_modules/
 dist/
 src-tauri/target/
 src-tauri/gen/
+src-tauri/binaries/eureka42-agent-runner-*
 *.log
 .DS_Store
 *.tsbuildinfo

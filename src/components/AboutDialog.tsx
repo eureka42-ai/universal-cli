@@ -1,4 +1,6 @@
+import { t } from "../i18n";
 import { useEffect } from "react";
+import { version } from "../../package.json";
 import logoEscuro from "../assets/brand/logo-escuro.svg";
 
 /**
@@ -21,10 +23,10 @@ export function AboutDialog({ open, onClose }: { open: boolean; onClose(): void 
         <img src={logoEscuro} alt="Eureka42" className="about-logo" />
         <div className="about-titles">
           <h1 id="about-title">EUREKA<span className="about-42">42</span></h1>
-          <p className="about-sub">UNIVERSAL CLI</p>
+          <p className="about-sub">UNIVERSAL CLI · v{version}</p>
           <p className="about-tagline">The Freedom to Create.</p>
         </div>
-        <button className="settings-close" onClick={onClose} aria-label="Fechar sobre">×</button>
+        <button className="settings-close" onClick={onClose} aria-label={t("Fechar sobre")}>×</button>
       </header>
 
       <div className="about-body">

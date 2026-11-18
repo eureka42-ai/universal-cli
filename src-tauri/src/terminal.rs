@@ -1,7 +1,7 @@
 use crate::agents::{find_agent_executable, resume_args};
 use crate::context;
 use crate::projects::ProjectRepository;
-use portable_pty::{native_pty_system, Child, CommandBuilder, MasterPty, PtySize};
+use portable_pty::{native_pty_system, Child, MasterPty, PtySize};
 use serde::Serialize;
 use std::{
     collections::HashMap,
@@ -11,7 +11,7 @@ use std::{
     sync::Mutex,
     thread,
 };
-use tauri::{AppHandle, Emitter, State};
+use tauri::{AppHandle, Emitter, Manager, State};
 use uuid::Uuid;
 
 pub struct TerminalSession {
@@ -75,6 +75,17 @@ pub fn launch_terminal(
         .project_id_for_path(&cwd_string)
         .map_err(|error| format!("falha ao localizar projeto: {error}"))?
         .ok_or_else(|| "o diretório não pertence a um projeto ativo".to_string())?;
+    let session_id = Uuid::new_v4().to_string();
+    repository.record_session_started(&session_id, &project_id, &agent_id, &cwd_string, resumed)
+        .map_err(|error| format!("falha ao registrar tentativa de sessão: {error}"))?;
+    let fail = |stage: &str, error: String| {
+        match repository.record_launch_failure(&session_id, stage) {
+            Ok(()) => error,
+            Err(record_error) => format!("{error}; falha ao registrar diagnóstico: {record_error}"),
+        }
+    };
+    let size = checked_size(cols, rows)
+        .map_err(|error| fail("Dimensões do terminal inválidas.", error))?;
 
     // Contexto universal entre conversas: mantém `.eureka42/contexto.md`
     // fresco no projeto e injeta o agregado em novas sessões dos agentes
@@ -94,9 +105,10 @@ pub fn launch_terminal(
     };
 
     let pair = native_pty_system()
-        .openpty(checked_size(cols, rows)?)
-        .map_err(|error| format!("falha ao abrir PTY: {error}"))?;
-    let mut command = CommandBuilder::new(executable);
+        .openpty(size)
+        .map_err(|error| fail("Falha ao abrir PTY.", format!("falha ao abrir PTY: {error}")))?;
+    let mut command = crate::agent_process::pty_command(&executable)
+        .map_err(|error| fail("Falha ao preparar lançador do agente.", error))?;
     if let Some(flags) = resume_flags {
         command.args(flags);
     }
@@ -105,78 +117,30 @@ pub fn launch_terminal(
             command.args([flag, markdown.as_str()]);
         }
     }
-    command.cwd(&cwd);
+    command.cwd(crate::agent_process::working_directory(&cwd));
     command.env("TERM", "xterm-256color");
     command.env("COLORTERM", "truecolor");
     let mut child = pair
         .slave
         .spawn_command(command)
-        .map_err(|error| format!("falha ao iniciar agente: {error}"))?;
+        .map_err(|error| fail("Falha ao iniciar agente. Verifique o executável e seus pré-requisitos.", format!("falha ao iniciar agente: {error}")))?;
     drop(pair.slave);
     let mut reader = pair
         .master
         .try_clone_reader()
-        .map_err(|error| format!("falha ao abrir saída do PTY: {error}"))?;
+        .map_err(|error| { let _ = child.kill(); fail("Falha ao abrir saída do PTY.", format!("falha ao abrir saída do PTY: {error}")) })?;
     let writer = pair
         .master
         .take_writer()
-        .map_err(|error| format!("falha ao abrir entrada do PTY: {error}"))?;
-    let session_id = Uuid::new_v4().to_string();
+        .map_err(|error| { let _ = child.kill(); fail("Falha ao abrir entrada do PTY.", format!("falha ao abrir entrada do PTY: {error}")) })?;
     let output_session_id = session_id.clone();
-    if let Err(error) = repository.record_session_started(
-        &session_id,
-        &project_id,
-        &agent_id,
-        &cwd_string,
-        resumed,
-    ) {
-        let _ = child.kill();
-        return Err(format!("falha ao registrar sessão: {error}"));
-    }
     let output_repository = repository.inner().clone();
     let output_project_id = project_id.clone();
-
-    thread::spawn(move || {
-        let mut buffer = [0_u8; 8192];
-        loop {
-            match reader.read(&mut buffer) {
-                Ok(0) | Err(_) => break,
-                Ok(length) => {
-                    if output_repository
-                        .should_capture_terminal_events()
-                        .unwrap_or(false)
-                    {
-                        let _ = output_repository.record_terminal_event(
-                            &output_session_id,
-                            "OUTPUT",
-                            &buffer[..length],
-                        );
-                    }
-                    let _ = app.emit(
-                        "terminal-output",
-                        TerminalOutput {
-                            session_id: output_session_id.clone(),
-                            data: buffer[..length].to_vec(),
-                        },
-                    );
-                }
-            }
-        }
-        let _ = output_repository.mark_session_ended(&output_session_id, "EXITED");
-        // Fim de conversa: publica o contexto atualizado para a próxima.
-        let _ = context::write_context_file(&output_repository, &output_project_id);
-        let _ = app.emit(
-            "terminal-exited",
-            TerminalExited {
-                session_id: output_session_id,
-            },
-        );
-    });
 
     manager
         .sessions
         .lock()
-        .map_err(|_| "gerenciador de terminal indisponível".to_string())?
+        .map_err(|_| { let _ = child.kill(); fail("Gerenciador de terminal indisponível.", "gerenciador de terminal indisponível".to_string()) })?
         .insert(
             session_id.clone(),
             TerminalSession {
@@ -185,6 +149,56 @@ pub fn launch_terminal(
                 child,
             },
         );
+
+    let reader_app = app.clone();
+    let reader_repository = output_repository.clone();
+    let reader_session_id = output_session_id.clone();
+    let (drained_sender, drained_receiver) = std::sync::mpsc::channel();
+    thread::spawn(move || {
+        let mut buffer = [0_u8; 8192];
+        loop {
+            match reader.read(&mut buffer) {
+                Ok(0) | Err(_) => break,
+                Ok(length) => {
+                    if reader_repository.should_capture_terminal_events().unwrap_or(false) {
+                        let _ = reader_repository.record_terminal_event(&reader_session_id, "OUTPUT", &buffer[..length]);
+                    }
+                    let _ = reader_app.emit("terminal-output", TerminalOutput {
+                        session_id: reader_session_id.clone(), data: buffer[..length].to_vec(),
+                    });
+                }
+            }
+        }
+        let _ = drained_sender.send(());
+    });
+
+    // On ConPTY, EOF can depend on dropping the master. Observe process exit
+    // independently so a finished child cannot keep its own terminal alive.
+    thread::spawn(move || {
+        let status = loop {
+            let manager = app.state::<TerminalManager>();
+            let mut sessions = match manager.sessions.lock() { Ok(sessions) => sessions, Err(_) => break "FAILED" };
+            match sessions.get_mut(&output_session_id).map(|session| session.child.try_wait()) {
+                None => break "EXITED", // Explicit close already recorded TERMINATED.
+                Some(Ok(Some(exit))) => {
+                    sessions.remove(&output_session_id);
+                    break if exit.success() { "EXITED" } else { "FAILED" };
+                }
+                Some(Err(_)) => {
+                    if let Some(mut session) = sessions.remove(&output_session_id) { let _ = session.child.kill(); }
+                    break "FAILED";
+                }
+                Some(Ok(None)) => {}
+            }
+            drop(sessions);
+            thread::sleep(std::time::Duration::from_millis(100));
+        };
+        let _ = output_repository.mark_session_ended(&output_session_id, status);
+        let _ = drained_receiver.recv_timeout(std::time::Duration::from_secs(5));
+        let _ = context::write_context_file(&output_repository, &output_project_id);
+        let _ = app.emit("terminal-exited", TerminalExited { session_id: output_session_id });
+    });
+
     Ok(TerminalStarted {
         session_id,
         agent_id,
@@ -249,19 +263,23 @@ pub fn close_terminal(
     repository: State<'_, ProjectRepository>,
     session_id: String,
 ) -> Result<(), String> {
-    let mut session = manager
-        .sessions
-        .lock()
-        .map_err(|_| "gerenciador de terminal indisponível".to_string())?
-        .remove(&session_id)
-        .ok_or_else(|| "sessão de terminal não encontrada".to_string())?;
-    session
-        .child
-        .kill()
-        .map_err(|error| format!("falha ao encerrar agente: {error}"))?;
-    repository
-        .mark_session_ended(&session_id, "TERMINATED")
-        .map_err(|error| format!("falha ao finalizar registro: {error}"))
+    let mut sessions = manager.sessions.lock()
+        .map_err(|_| "gerenciador de terminal indisponível".to_string())?;
+    let Some(session) = sessions.get_mut(&session_id) else { return Ok(()); };
+    if session.child.try_wait().map_err(|error| error.to_string())?.is_none() {
+        #[cfg(windows)]
+        if let Some(pid) = session.child.process_id() {
+            if let Err(error) = crate::agent_process::terminate_tree(pid) {
+                if session.child.try_wait().map_err(|error| error.to_string())?.is_none() { return Err(error); }
+            }
+        }
+        #[cfg(not(windows))]
+        session.child.kill().map_err(|error| format!("falha ao encerrar agente: {error}"))?;
+    }
+    repository.mark_session_ended(&session_id, "TERMINATED")
+        .map_err(|error| format!("falha ao finalizar registro: {error}"))?;
+    sessions.remove(&session_id);
+    Ok(())
 }
 
 fn canonical_working_directory(requested: Option<String>) -> Result<PathBuf, String> {
@@ -295,6 +313,7 @@ fn checked_size(cols: Option<u16>, rows: Option<u16>) -> Result<PtySize, String>
 #[cfg(test)]
 mod tests {
     use super::*;
+    use portable_pty::CommandBuilder;
 
     #[test]
     fn validates_terminal_dimensions() {
@@ -306,6 +325,55 @@ mod tests {
     #[test]
     fn rejects_missing_working_directory() {
         assert!(canonical_working_directory(Some("/definitely/missing/uai-cli".into())).is_err());
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn windows_conpty_captures_real_output_in_unicode_working_directory() {
+        let directory = tempfile::tempdir().unwrap();
+        let cwd = directory.path().join("projeto com espaços e ação");
+        std::fs::create_dir(&cwd).unwrap();
+        let pair = native_pty_system().openpty(checked_size(Some(80), Some(24)).unwrap()).unwrap();
+        let mut command = CommandBuilder::new(std::env::var_os("COMSPEC").unwrap_or_else(|| "cmd.exe".into()));
+        command.args(["/d", "/c", "echo", "CONPTY_OK"]);
+        command.cwd(cwd);
+        let mut child = pair.slave.spawn_command(command).unwrap();
+        drop(pair.slave);
+        let mut reader = pair.master.try_clone_reader().unwrap();
+        let mut writer = pair.master.take_writer().unwrap();
+        let (sender, receiver) = std::sync::mpsc::channel();
+        std::thread::spawn(move || {
+            let mut sender = Some(sender);
+            let mut output = Vec::new();
+            let mut buffer = [0u8; 1024];
+            let mut answered_cursor_query = false;
+            while let Ok(length) = reader.read(&mut buffer) {
+                if length == 0 { break; }
+                output.extend_from_slice(&buffer[..length]);
+                // portable-pty enables PSEUDOCONSOLE_INHERIT_CURSOR. A real
+                // terminal (xterm.js) replies to this startup cursor query.
+                if !answered_cursor_query && output.windows(4).any(|bytes| bytes == b"\x1b[6n") {
+                    writer.write_all(b"\x1b[1;1R").unwrap();
+                    writer.flush().unwrap();
+                    answered_cursor_query = true;
+                }
+                if String::from_utf8_lossy(&output).contains("CONPTY_OK") {
+                    if let Some(sender) = sender.take() { let _ = sender.send(String::from_utf8_lossy(&output).into_owned()); }
+                }
+            }
+            if let Some(sender) = sender { let _ = sender.send(String::from_utf8_lossy(&output).into_owned()); }
+        });
+        let output = receiver.recv_timeout(std::time::Duration::from_secs(15));
+        if output.is_err() { let _ = child.kill(); }
+        assert!(output.unwrap().contains("CONPTY_OK"));
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+        let status = loop {
+            if let Some(status) = child.try_wait().unwrap() { break status; }
+            if std::time::Instant::now() > deadline { let _ = child.kill(); panic!("process did not exit after printing the marker"); }
+            std::thread::sleep(std::time::Duration::from_millis(25));
+        };
+        assert!(status.success());
+        drop(pair.master);
     }
 
     #[cfg(unix)]

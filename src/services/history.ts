@@ -1,7 +1,7 @@
 export type SessionSummary = { id: string; projectId: string; agentId: string; workingDirectory: string; status: string; startedAt: number; endedAt: number | null; eventCount: number; capturedBytes: number };
 
 export type SessionFilters = { agentId?: string; status?: string; query?: string; startedAfter?: number };
-export type TerminalEvent = { id: number; direction: string; text: string; createdAt: number };
+export type TerminalEvent = { id: number; direction: string; text: string; data?: number[]; createdAt: number };
 export type ExportResult = { path: string; format: string; redactionApplied: boolean };
 
 export async function listTerminalSessions(projectId: string, filters: SessionFilters = {}, limit = 50, offset = 0) {

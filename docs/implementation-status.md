@@ -1,5 +1,10 @@
 # Estado da implementação
 
+## 2026-11-14 — Windows user QA and fixes in progress
+
+See `docs/decisions/009-windows-launchers-and-qa.md`. Installed-app failures were reproduced on Windows. Source fixes cover npm launchers, custom-agent resolution, failed-attempt history, project terminal isolation, explicit handoff review and UI diagnostics. Frontend: **17 Vitest tests passed**, production build passed. Native regression tests and three-platform CI added; local native tests initially blocked by missing GNU `dlltool`. Updated-binary interaction and provider sessions remain **NOT_VERIFIED** until executed. No release/tag was published.
+
+
 Atualizado em 2026-11-12. **Correções e melhorias de uso real** (relatadas pelo
 usuário ao testar o app no Mac): botão Fechar nativo quebrado, fluxo de agentes
 confuso, fontes pequenas, splash mais longo, histórico por projeto na sidebar.
@@ -181,3 +186,55 @@ A primeira versão funcional para macOS está concluída, incluindo os três req
 4. **Site**: apontar para eureka42.org (feito nos arquivos; o domínio precisa existir/apontar).
 5. **Repositório**: decidir renomear `github.com/raulgreco/hostdrive` para a marca (afeta o endpoint do auto-update; o updater publica em rascunho, então a troca é segura antes da primeira release pública).
 6. Publicar release v0.2.0 (tag) quando os itens 1–3 tiverem evidência — o CI gera macOS + Windows automaticamente.
+
+### 2026-11-14 — follow-up QA
+
+History reading, copy and event pagination implemented; **20 frontend tests and production build pass**. CI at `49b2006`: macOS/Linux passed; Windows compiled and passed 36 native tests, with one ConPTY EOF smoke timeout. Corrective lifecycle and bounded-marker test added; rerun pending. Installed-app Claude startup observed, full conversation still NOT_VERIFIED.
+
+### Windows batch runner (real process probe)
+
+A standalone Rust console sidecar replaces the GUI-process bridge. Its real ConPTY test passed locally with spaces, `&` and Unicode paths, expected output and successful exit. The Tauri bundle now includes the sidecar and CI QA artifacts copy it alongside the executable. A batch/PTY integration regression is added; full native checks pending for this change.
+
+### 2026-11-14 — visual e versão 0.2.0
+
+Interface alinhada ao site eureka42.org: branco/verde, navegação com ícones, boas-vindas, caminhos de armazenamento reais. Sistema passa a ser o tema padrão; Claro/Escuro permanecem disponíveis. Manifests e Sobre identificam 0.2.0.
+
+CI 0d8f277 passou em Windows/macOS/Linux, incluindo compilação de executáveis Windows. Teste GUI real abriu Gemini 0.68.0 em ConPTY. Encontrado novo defeito: CMD rejeita cwd canônico verbatim e cai em Windows. Reproduzido localmente exigindo arquivo exclusivo do projeto; correção usa forma Win32 no processo e preserva caminho canônico no banco. Mesmo teste passou após correção. Conversa e autenticação do provedor não foram automatizadas.
+
+### 2026-11-14 — preferências iniciais e idiomas
+
+Primeira configuração pede idioma e tema; Sistema é a seleção inicial. O diálogo permanece aberto em erro de gravação, permite nova tentativa e mantém o foco do teclado. Preferências de captura/nuvem são preservadas ao gravar o tema. Seleção de idioma persiste localmente; em Configurações, Cancelar restaura a seleção anterior e Salvar confirma.
+
+Os mesmos 15 idiomas do site estão disponíveis (pt-BR, en, it, es, fr, de, nl, pl, ru, tr, ar, hi, ja, ko, zh). Inglês cobre 320 mensagens; os demais catálogos cobrem a configuração inicial e as ações dos fluxos principais. Instruções avançadas ainda usam fallback inglês; manifesto institucional e saídas das CLIs permanecem no original. Árabe aplica RTL à interface, preservando LTR no terminal. Datas seguem o idioma selecionado.
+
+Validação local: 28 testes frontend aprovados e build de produção aprovado. CI de b6ceaf5 passou nos três sistemas e gerou o primeiro instalador 0.2.0 do Windows. Pipeline Desktop packages gera Windows NSIS/MSI, Linux DEB/AppImage e macOS APP/DMG do mesmo commit. Assinatura de distribuição/notarização e execução visual em Linux/macOS não são alegadas.
+
+### 2026-11-14 — segunda revisão do histórico
+
+Lista agrupada por dia, agente/horário/duração/volume e estado explícito. Leitor limitado à janela com rolagem independente, navegação entre sessões, busca com realce, Leitura e Registro completo, detalhes técnicos recolhidos e exportações sempre visíveis. Reconstrução local com xterm/headless consolida comandos de cursor e apagamento; não infere papéis nem inventa conversa. Registro completo e bytes originais permanecem disponíveis.
+
+Corrigida perda de informação na API anterior: ela removia ANSI por pacote, quebrando comandos fragmentados e títulos OSC. A API agora inclui bytes originais; TextDecoder em streaming preserva Unicode entre pacotes antes da reprodução. Exportações agrupam blocos adjacentes de mesma direção antes de decodificar e aplicar remoção básica de segredos.
+
+33 testes frontend aprovados; build aprovado. Incluem cursor sobrescrevendo progresso, split UTF-8/OSC, preservação do registro completo, busca e falha assíncrona antiga ignorada após navegar para outra sessão. Teste visual browser com fixtures (não prova conexão nativa) verifica conteúdo longo, footer dentro da janela e temas/tamanhos. Interface Windows exercitada com registros reais; bytes na versão nativa final ainda dependem do próximo build.
+
+CI e pacotes de 6d0ad5b passaram em todos os sistemas: Windows EXE/MSI, Linux DEB e AppImage separados, macOS APP/DMG. Nova geração será feita para incluir esta revisão. Teste headless dos 15 idiomas: primeira configuração, persistência, direção e ausência de overflow horizontal aprovados; execução visual nativa do idioma/tema continua sendo testada separadamente.
+
+Antigravity: o executável CLI não estava instalado nas pastas oficiais. Binário 1.5.9 baixado do manifest oficial, SHA-512 conferido e instalado em LOCALAPPDATA/agy/bin, sem alterar PATH de sistema. Foi detectado e aberto pelo Eureka42 em ConPTY, chegando à configuração inicial. Autenticação e conversa do agy não foram automatizadas. Gemini abre e foi autenticado manualmente pelo usuário; numa nova abertura ainda foi observada mensagem de cliente não suportado do Google Code Assist. Não afirmar que conversa do modelo foi validada.
+
+### Conclusão da inspeção visual compacta
+
+A matriz de histórico com sessão longa passou em 1280×768 e 900×600, claro e escuro: painel/rodapé dentro da janela, busca com realce, controles de cursor consolidados, registro completo preservado e Esc retornando à lista. Primeiro ensaio revelou regra legada que escondia o nome da sessão em 900px; corrigida por seletor específico e reensaio aprovado nos quatro casos. Contexto gerado passa a identificar Eureka42 e horários UTC explicitamente. CI de 1dbd6cb passou Windows/macOS/Linux.
+
+### 2026-11-15 — fechamento de QA 0.2.0
+
+Código empacotado: 1b00ef4. Checks 43658677350: **33 testes frontend**, build aprovado; **40 testes Rust Windows**, **36 Linux**, **36 macOS**, sem falhas. Pacotes 43658677300: NSIS/MSI Windows x64, DEB e AppImage Linux x64 separados, APP/ZIP e DMG macOS ARM64. DMG aprovado por hdiutil verify.
+
+DEB e AppImage foram extraídos e abertos em Xvfb; processo e janela permaneceram ativos após a primeira renderização. Capturas dos dois formatos inspecionadas: seleção inicial com versão 0.2.0. Isso é teste de abertura em ambiente virtual, não conversa autenticada nem teste completo de um desktop Linux físico.
+
+Pacotes recebidos conferidos contra digests SHA-256 do GitHub; seis arquivos finais têm manifesto e SHA256SUMS. Cópia Windows otimizada, extraída do NSIS verificado, pronta no perfil do usuário com atalho Eureka42 0.2.0. Abertura e recuperação de dados anteriores confirmadas; deixada na seleção inicial de idioma/tema, Sistema selecionado. Instalação administrativa antiga 0.1.0 foi preservada.
+
+Leitor atualizado exercitado com bytes originais de sessão real após reinício: títulos OSC não vazam para a leitura, caracteres e layout do terminal preservados. Exportações TXT/JSON/Markdown e cópia exercitadas; memória/contexto e tarefa com acentos/japonês persistidos; pacote de transferência mostrou conteúdo verificável.
+
+Pendências explícitas: respostas autenticadas de todos os provedores, sincronização Drive/OneDrive entre duas máquinas, interação gráfica macOS, Mac Intel, notarização e atualização automática por release. Instruções avançadas ainda usam fallback inglês. O agy 1.5.9 foi detectado e abriu até configuração inicial; login não foi automatizado.
+
+Relatório detalhado e pacotes entregues em outputs/v0.2.0 no workspace da tarefa. Capturas de histórico usam fixtures; capturas Linux vêm dos binários na CI. Nenhuma captura de histórico pessoal foi adicionada ao repositório.

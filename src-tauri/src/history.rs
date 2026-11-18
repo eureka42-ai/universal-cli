@@ -13,6 +13,7 @@ pub struct TerminalEvent {
     id: i64,
     direction: String,
     text: String,
+    data: Vec<u8>,
     created_at: i64,
 }
 
@@ -58,6 +59,7 @@ pub fn get_terminal_session_events(
                     id: row.get(0)?,
                     direction: row.get(1)?,
                     text: strip_ansi(&String::from_utf8_lossy(&data)),
+                    data,
                     created_at: row.get(3)?,
                 })
             },
@@ -90,18 +92,19 @@ pub fn export_terminal_session(
             "SELECT direction,data,created_at FROM terminal_events WHERE session_id=?1 ORDER BY id",
         )
         .map_err(db_error)?;
-    let events = statement
+    let raw_events = statement
         .query_map([&session_id], |row| {
             let data: Vec<u8> = row.get(1)?;
             Ok((
                 row.get::<_, String>(0)?,
-                redact(&strip_ansi(&String::from_utf8_lossy(&data))),
+                data,
                 row.get::<_, i64>(2)?,
             ))
         })
         .map_err(db_error)?
         .collect::<Result<Vec<_>, _>>()
         .map_err(db_error)?;
+    let events = prepare_export_events(raw_events);
     let body = match format.as_str() {
         "json" => serde_json::to_string_pretty(&serde_json::json!({"sessionId":session_id,"agentId":header.0,"workingDirectory":header.1,"startedAt":header.2,"events":events})).map_err(|error| error.to_string())?,
         "md" => { let mut value = format!("# Sessão {}\n\n- Agente: `{}`\n- Diretório: `{}`\n- Início: `{}`\n\n",session_id,header.0,header.1,header.2); for (direction,text,time) in &events { value.push_str(&format!("## {direction} · {time}\n\n```text\n{text}\n```\n\n")); } value },
@@ -139,21 +142,38 @@ fn redact(text: &str) -> String {
         .collect::<Vec<_>>()
         .join("\n")
 }
+fn prepare_export_events(events: Vec<(String, Vec<u8>, i64)>) -> Vec<(String, String, i64)> {
+    // A PTY read is not a text boundary. Decode and redact complete groups.
+    let mut groups: Vec<(String, Vec<u8>, i64)> = Vec::new();
+    for (direction, data, time) in events {
+        if let Some(last) = groups.last_mut() {
+            if last.0 == direction { last.1.extend(data); continue; }
+        }
+        groups.push((direction, data, time));
+    }
+    groups.into_iter().map(|(direction, data, time)| {
+        (direction, redact(&strip_ansi(&String::from_utf8_lossy(&data))), time)
+    }).collect()
+}
 fn strip_ansi(text: &str) -> String {
     let mut output = String::new();
-    let mut escape = false;
-    for character in text.chars() {
+    let mut chars = text.chars().peekable();
+    while let Some(character) = chars.next() {
         if character == '\u{1b}' {
-            escape = true;
-            continue;
-        }
-        if escape {
-            if character.is_ascii_alphabetic() {
-                escape = false;
+            match chars.next() {
+                Some('[') => { for next in chars.by_ref() { if ('@'..='~').contains(&next) { break; } } }
+                Some(']' | 'P' | '^' | '_') => {
+                    while let Some(next) = chars.next() {
+                        if next == '\u{7}' { break; }
+                        if next == '\u{1b}' && chars.peek() == Some(&'\\') { chars.next(); break; }
+                    }
+                }
+                Some('(' | ')' | '*' | '+') => { chars.next(); }
+                _ => {}
             }
-            continue;
-        }
-        if character != '\r' {
+        } else if character == '\r' {
+            if chars.peek() != Some(&'\n') { output.push('\n'); }
+        } else if !character.is_control() || character == '\n' || character == '\t' {
             output.push(character);
         }
     }
@@ -175,6 +195,20 @@ fn io_error(error: std::io::Error) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn strips_window_titles_and_terminal_controls_without_leaking_title_paths() {
+        assert_eq!(strip_ansi("\u{1b}]0;private/path\u{7}\u{1b}[32mOlá 世界\u{1b}[0m\r\n"), "Olá 世界\n");
+        assert_eq!(strip_ansi("\u{1b}]0;hidden\u{1b}\\visible"), "visible");
+    }
+    #[test]
+    fn export_joins_utf8_and_escape_sequences_before_redaction() {
+        let bytes = "\u{1b}]0;hidden title\u{7}Olá 世界\r\nTOKEN=do-not-export".as_bytes();
+        let events = bytes.chunks(2).map(|chunk| ("OUTPUT".to_string(), chunk.to_vec(), 1)).collect();
+        let result = prepare_export_events(events);
+        assert_eq!(result.len(), 1);
+        assert_eq!(result[0].1, "Olá 世界\n[REDACTED: possível segredo]");
+        assert!(!result[0].1.contains("do-not-export"));
+    }
     #[test]
     fn strips_ansi_and_redacts_common_assignments() {
         assert_eq!(strip_ansi("\u{1b}[31mhello\u{1b}[0m\r\n"), "hello\n");

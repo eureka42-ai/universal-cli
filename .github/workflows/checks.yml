@@ -1,0 +1,63 @@
+name: Checks
+on:
+  push:
+    branches: [main, 'fix/**']
+  pull_request:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  check:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, macos-latest, ubuntu-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Linux dependencies
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y libwebkit2gtk-4.1-dev libgtk-3-dev libayatana-appindicator3-dev librsvg2-dev libxdo-dev libssl-dev
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: './src-tauri -> target'
+      - run: npm ci
+      - run: npm test
+      - run: npm run build
+      - run: cargo test --locked --manifest-path src-tauri/Cargo.toml --no-fail-fast
+      - name: Build Windows executable for manual QA
+        if: runner.os == 'Windows'
+        run: |
+          cargo build --locked --manifest-path src-tauri/Cargo.toml --features custom-protocol
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          New-Item -ItemType Directory -Force qa/standalone | Out-Null
+          Copy-Item -LiteralPath src-tauri/target/debug/universal-ai-cli.exe -Destination qa/standalone/Eureka42-QA.exe
+          Copy-Item -LiteralPath src-tauri/binaries/eureka42-agent-runner-x86_64-pc-windows-msvc.exe -Destination qa/standalone/eureka42-agent-runner.exe
+          Get-ChildItem src-tauri/target/debug -Filter '*.dll' | Copy-Item -Destination qa/standalone
+      - name: Build Windows development executable for live UI QA
+        if: runner.os == 'Windows'
+        run: |
+          cargo build --locked --manifest-path src-tauri/Cargo.toml
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          New-Item -ItemType Directory -Force qa/development | Out-Null
+          Copy-Item -LiteralPath src-tauri/target/debug/universal-ai-cli.exe -Destination qa/development/Eureka42-QA-dev.exe
+          Copy-Item -LiteralPath src-tauri/binaries/eureka42-agent-runner-x86_64-pc-windows-msvc.exe -Destination qa/development/eureka42-agent-runner.exe
+          Get-ChildItem src-tauri/target/debug -Filter '*.dll' | Copy-Item -Destination qa/development
+      - name: Build Windows installer for QA
+        if: runner.os == 'Windows'
+        run: |
+          '{"bundle":{"createUpdaterArtifacts":false}}' | Set-Content qa/bundle-config.json
+          npm run tauri -- build --debug --bundles nsis --config qa/bundle-config.json
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          New-Item -ItemType Directory -Force qa/installer | Out-Null
+          Get-ChildItem src-tauri/target/debug/bundle/nsis -Filter '*.exe' | Copy-Item -Destination qa/installer
+      - uses: actions/upload-artifact@v4
+        if: runner.os == 'Windows'
+        with:
+          name: eureka42-windows-qa
+          path: qa/
+          if-no-files-found: error

@@ -1,3 +1,4 @@
+import { t } from "../i18n";
 import { useEffect, useState } from "react";
 
 /** Controles de janela desenhados pelo próprio app (titlebar do Baralho
@@ -40,14 +41,14 @@ export function WindowControls() {
     await getCurrentWindow().toggleMaximize();
   }
 
-  return <div className="window-controls" aria-label="Controles da janela">
-    <button className="window-control window-control--close" aria-label="Fechar janela" onClick={() => void close()}>
+  return <div className="window-controls" aria-label={t("Controles da janela")}>
+    <button className="window-control window-control--close" aria-label={t("Fechar janela")} onClick={() => void close()}>
       <svg width="8" height="8" viewBox="0 0 8 8" aria-hidden="true"><path d="M1.6 1.6l4.8 4.8M6.4 1.6L1.6 6.4" stroke="currentColor" strokeWidth="1.1" strokeLinecap="round" /></svg>
     </button>
-    <button className="window-control window-control--minimize" aria-label="Minimizar janela" onClick={() => void minimize()}>
+    <button className="window-control window-control--minimize" aria-label={t("Minimizar janela")} onClick={() => void minimize()}>
       <svg width="8" height="8" viewBox="0 0 8 8" aria-hidden="true"><path d="M1.2 4h5.6" stroke="currentColor" strokeWidth="1.1" strokeLinecap="round" /></svg>
     </button>
-    <button className="window-control window-control--zoom" aria-label="Ampliar ou restaurar janela" onClick={() => void toggleMaximize()}>
+    <button className="window-control window-control--zoom" aria-label={t("Ampliar ou restaurar janela")} onClick={() => void toggleMaximize()}>
       <svg width="8" height="8" viewBox="0 0 8 8" aria-hidden="true"><path d="M1.5 4.8V1.5h3.3M6.5 3.2v3.3H3.2" fill="none" stroke="currentColor" strokeWidth="1.1" strokeLinecap="round" strokeLinejoin="round" /></svg>
     </button>
   </div>;

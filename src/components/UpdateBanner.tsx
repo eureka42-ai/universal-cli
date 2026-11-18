@@ -1,3 +1,4 @@
+import { t } from "../i18n";
 import { useState } from "react";
 import { downloadAndInstallUpdate, type UpdateInfo } from "../services/updater";
 
@@ -16,14 +17,14 @@ export function UpdateBanner({ update, onDismiss }: { update: UpdateInfo; onDism
 
   return <div className="update-banner" role="status">
     <div className="update-banner-text">
-      <strong>Nova versão disponível: {update.version}</strong>
+      <strong>{t("Nova versão disponível: ")}{update.version}</strong>
       {update.body ? <p>{update.body}</p> : null}
-      {installing ? <p>{percent !== null ? `Baixando… ${percent}%` : "Baixando atualização…"}</p> : null}
+      {installing ? <p>{percent !== null ? t("Baixando… {0}%", {0: percent}) : t("Baixando atualização…")}</p> : null}
       {error ? <p className="update-banner-error">{error}</p> : null}
     </div>
     <div className="update-banner-actions">
-      {!installing ? <button className="secondary-button" onClick={onDismiss}>Depois</button> : null}
-      <button className="primary-button" onClick={install} disabled={installing}>{installing ? "Instalando…" : "Atualizar agora"}</button>
+      {!installing ? <button className="secondary-button" onClick={onDismiss}>{t("Depois")}</button> : null}
+      <button className="primary-button" onClick={install} disabled={installing}>{installing ? t("Instalando…") : t("Atualizar agora")}</button>
     </div>
   </div>;
 }

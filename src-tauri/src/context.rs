@@ -197,7 +197,7 @@ fn render_markdown(
     let mut out = String::with_capacity(4096);
     out.push_str(&format!("# Contexto do projeto — {project_name}\n\n"));
     out.push_str(&format!(
-        "> Gerado pelo HostDrive em {}. Resumo para continuidade entre conversas: verifique arquivos e Git antes de agir — este texto não substitui o estado real do projeto.\n\n",
+        "> Gerado pelo Eureka42 em {} UTC. Resumo para continuidade entre conversas: verifique arquivos e Git antes de agir — este texto não substitui o estado real do projeto.\n\n",
         format_timestamp(generated_at)
     ));
 
@@ -232,7 +232,7 @@ fn render_markdown(
         for session in sessions {
             let resumed = if session.resumed { " · retomada" } else { "" };
             out.push_str(&format!(
-                "- {} · {} · {}{}\n",
+                "- {} UTC · {} · {}{}\n",
                 format_timestamp(session.started_at),
                 session.agent_id,
                 session.status,
@@ -243,9 +243,9 @@ fn render_markdown(
     }
 
     out.push_str("## Como usar este contexto\n\n");
-    out.push_str("- Ao iniciar uma **nova sessão** pelo HostDrive, o Claude Code recebe este conteúdo automaticamente (flag validada `--append-system-prompt`).\n");
+    out.push_str("- Ao iniciar uma **nova sessão** pelo Eureka42, o Claude Code recebe este conteúdo automaticamente (flag validada `--append-system-prompt`).\n");
     out.push_str("- Nos demais agentes, aponte para `.eureka42/contexto.md` neste diretório ou cole o resumo no início da conversa.\n");
-    out.push_str("- Para repetir a última conversa nativa de um agente, use o botão **Retomar** do HostDrive.\n");
+    out.push_str("- Para repetir a última conversa nativa de um agente, use o botão **Retomar** do Eureka42.\n");
     out
 }
 
