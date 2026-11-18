@@ -57,6 +57,22 @@ jobs:
       - name: Instalar dependências do npm
         run: npm ci
 
+      - name: Configurar artefatos de atualização
+        id: updater
+        shell: bash
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+        run: |
+          if [ -n "$TAURI_SIGNING_PRIVATE_KEY" ]; then
+            echo "enabled=true" >> "$GITHUB_OUTPUT"
+            echo "args=" >> "$GITHUB_OUTPUT"
+          else
+            printf '%s' '{"bundle":{"createUpdaterArtifacts":false}}' > updater-disabled.json
+            echo "enabled=false" >> "$GITHUB_OUTPUT"
+            echo "args=--config updater-disabled.json" >> "$GITHUB_OUTPUT"
+            echo "::notice::Sem chave do updater: somente instaladores para atualização manual."
+          fi
+
       - name: Build + assinatura + publicação no Release
         uses: tauri-apps/tauri-action@v0
         env:
@@ -69,7 +85,8 @@ jobs:
           releaseBody: "Ver detalhes em docs/implementation-status.md e docs/decisions/."
           releaseDraft: true
           prerelease: false
-          args: ${{ matrix.args }}
+          includeUpdaterJson: ${{ steps.updater.outputs.enabled }}
+          args: ${{ matrix.args }} ${{ steps.updater.outputs.args }}
 
   # Build Linux sob demanda (disparo manual): sem tag, sem release — só os
   # pacotes .deb e .AppImage anexados ao run para teste/validação.
@@ -101,12 +118,17 @@ jobs:
         run: npm ci
 
       - name: Build Linux (.deb + AppImage)
+        shell: bash
         env:
-          # Sem a chave o build dos bundles até sai, mas o CLI falha o step
-          # (exit 1) ao não conseguir assinar os artefatos do updater.
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
-        run: npm run tauri -- build --bundles deb,appimage
+        run: |
+          if [ -n "$TAURI_SIGNING_PRIVATE_KEY" ]; then
+            npm run tauri -- build --bundles deb,appimage
+          else
+            printf '%s' '{"bundle":{"createUpdaterArtifacts":false}}' > updater-disabled.json
+            npm run tauri -- build --bundles deb,appimage --config updater-disabled.json
+          fi
 
       - name: Enviar pacotes como artefatos do workflow
         uses: actions/upload-artifact@v4

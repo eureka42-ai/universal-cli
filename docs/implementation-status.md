@@ -238,3 +238,11 @@ Leitor atualizado exercitado com bytes originais de sessão real após reinício
 Pendências explícitas: respostas autenticadas de todos os provedores, sincronização Drive/OneDrive entre duas máquinas, interação gráfica macOS, Mac Intel, notarização e atualização automática por release. Instruções avançadas ainda usam fallback inglês. O agy 1.5.9 foi detectado e abriu até configuração inicial; login não foi automatizado.
 
 Relatório detalhado e pacotes entregues em outputs/v0.2.0 no workspace da tarefa. Capturas de histórico usam fixtures; capturas Linux vêm dos binários na CI. Nenhuma captura de histórico pessoal foi adicionada ao repositório.
+
+### 2026-11-18 — publicação 0.2.0
+
+Main atualizada e tag v0.2.0 criada em 346ba7b. A árvore do aplicativo corresponde a 1b00ef4 (apenas documentação difere). A tentativa de release 44404927124 compilou Linux, mas falhou ao assinar: não existem secrets de assinatura cadastrados no repositório. Foram promovidos os seis pacotes já validados do run 43658677300, com seus hashes, sem alterar nem recriar a tag. A release usa instalação/atualização manual; não inclui latest.json nem assinaturas do updater.
+
+Fluxo de release ajustado: sem TAURI_SIGNING_PRIVATE_KEY gera instaladores com createUpdaterArtifacts=false e omite latest.json. Com chave configurada mantém assinatura obrigatória e não oculta erros de chave/senha. A chave pública existente foi preservada; não foi criada uma identidade de assinatura substituta. Reabilitar atualização automática exige recuperar/configurar a chave privada correspondente e validar o percurso completo. Os builds continuam em rascunho até publicação explícita.
+
+Workflow revisado validado com actionlint 1.7.12, sem erros. O caminho sem assinatura usa a mesma configuração de empacotamento já executada com sucesso no run 43658677300; a revisão do workflow ainda não foi executada de ponta a ponta por uma nova tag. Checks da merge main: Windows/Linux aprovados; macOS cancelado na fila, sem substituir a validação macOS aprovada em 43658677350.

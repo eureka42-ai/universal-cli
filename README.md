@@ -39,6 +39,8 @@
 
 Na primeira abertura, escolha idioma e tema. O padrão é **Sistema**; **Claro** e **Escuro** também estão disponíveis.
 
+A atualização para esta release é manual: baixe e instale o pacote do seu sistema. A assinatura do updater ainda não está configurada no repositório.
+
 ## O que é o Universal-CLI?
 
 O **Universal-CLI** (nome de produto: *Eureka42 — Universal CLI*) é um aplicativo
